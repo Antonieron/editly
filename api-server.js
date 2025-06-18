@@ -1,6 +1,6 @@
-// api-server.js
+// api-server.js (ИСПРАВЛЕННЫЙ - без зависимости от index.js)
 import express from 'express';
-import editly from './index.js';
+import { spawn } from 'child_process';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
@@ -26,7 +26,7 @@ dirs.forEach(dir => {
   }
 });
 
-// Функция скачивания изображения (без axios)
+// Функция скачивания изображения
 function downloadImage(url, filepath) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(filepath);
@@ -46,11 +46,57 @@ function downloadImage(url, filepath) {
       });
       
       file.on('error', (err) => {
-        fs.unlink(filepath, () => {}); // Удаляем файл при ошибке
+        fs.unlink(filepath, () => {});
         reject(err);
       });
     }).on('error', (err) => {
       reject(err);
+    });
+  });
+}
+
+// Функция создания видео через CLI editly
+function createVideoWithEditly(specPath, outputPath, options = {}) {
+  return new Promise((resolve, reject) => {
+    const args = [specPath, '--out', outputPath];
+    
+    if (options.fast) {
+      args.push('--fast');
+    }
+    
+    console.log('🎬 Запуск editly CLI:', 'npx editly', args.join(' '));
+    
+    const editlyProcess = spawn('npx', ['editly', ...args], {
+      cwd: __dirname,
+      stdio: 'pipe'
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    editlyProcess.stdout.on('data', (data) => {
+      stdout += data.toString();
+      console.log('📹 Editly:', data.toString().trim());
+    });
+    
+    editlyProcess.stderr.on('data', (data) => {
+      stderr += data.toString();
+      console.error('⚠️ Editly error:', data.toString().trim());
+    });
+    
+    editlyProcess.on('close', (code) => {
+      if (code === 0) {
+        console.log('✅ Editly завершен успешно');
+        resolve({ stdout, stderr });
+      } else {
+        console.error('❌ Editly завершен с ошибкой, код:', code);
+        reject(new Error(`Editly exited with code ${code}. Stderr: ${stderr}`));
+      }
+    });
+    
+    editlyProcess.on('error', (error) => {
+      console.error('💥 Ошибка запуска editly:', error);
+      reject(error);
     });
   });
 }
@@ -67,8 +113,7 @@ app.post('/api/create-news-video', async (req, res) => {
       channelName = '📺 НОВОСТНОЙ КАНАЛ',
       subscribeText = '👆 ПОДПИШИСЬ НА КАНАЛ!',
       newsText = 'Актуальные новости • Подписывайтесь на канал',
-      fast = false,
-      ttsText = ''
+      fast = false
     } = req.body;
 
     if (!backgroundImage) {
@@ -85,18 +130,19 @@ app.post('/api/create-news-video', async (req, res) => {
     const timestamp = Date.now();
     const imageFilename = `bg_${timestamp}.jpg`;
     const videoFilename = `news_${timestamp}.mp4`;
+    const specFilename = `spec_${timestamp}.json5`;
+    
     const imagePath = path.join(__dirname, 'temp', imageFilename);
     const outputPath = path.join(__dirname, 'outputs', videoFilename);
+    const specPath = path.join(__dirname, 'temp', specFilename);
 
     console.log('⬇️ Скачиваем фоновое изображение...');
-    console.log(`📷 URL: ${backgroundImage}`);
-    
     await downloadImage(backgroundImage, imagePath);
     console.log('✅ Изображение скачано');
 
-    console.log('🎬 Создаем спецификацию видео...');
+    console.log('📝 Создаем JSON5 спецификацию...');
     
-    // Editly спецификация для новостного видео
+    // Создаем JSON5 спецификацию для editly CLI
     const editSpec = {
       outPath: outputPath,
       width: 1920,
@@ -114,13 +160,13 @@ app.post('/api/create-news-video', async (req, res) => {
             resizeMode: 'cover'
           },
           
-          // Темная накладка для читаемости
+          // Темная накладка
           {
             type: 'fill-color',
             color: 'rgba(0,0,0,0.4)'
           },
           
-          // Breaking News баннер (верх)
+          // Breaking News баннер
           {
             type: 'title',
             text: '🔥 ВАЖНЫЕ НОВОСТИ • BREAKING NEWS • СРОЧНО 🔥',
@@ -130,7 +176,7 @@ app.post('/api/create-news-video', async (req, res) => {
             position: { x: 0.5, y: 0.05, originX: 'center', originY: 'top' }
           },
           
-          // Дата (левый верхний угол)
+          // Дата
           {
             type: 'title',
             text: '📅 ' + new Date().toLocaleDateString('ru-RU'),
@@ -150,7 +196,7 @@ app.post('/api/create-news-video', async (req, res) => {
             position: { x: 0.05, y: 0.25, originX: 'left', originY: 'top' }
           },
           
-          // Главный заголовок (центр)
+          // Главный заголовок
           {
             type: 'title',
             text: title,
@@ -160,7 +206,7 @@ app.post('/api/create-news-video', async (req, res) => {
             position: { x: 0.5, y: 0.5, originX: 'center', originY: 'center' }
           },
           
-          // Название канала (внизу по центру)
+          // Название канала
           {
             type: 'title',
             text: channelName,
@@ -170,7 +216,7 @@ app.post('/api/create-news-video', async (req, res) => {
             position: { x: 0.5, y: 0.85, originX: 'center', originY: 'center' }
           },
           
-          // Призыв к подписке (правый нижний угол)
+          // Призыв к подписке
           {
             type: 'title',
             text: subscribeText,
@@ -183,28 +229,36 @@ app.post('/api/create-news-video', async (req, res) => {
       }]
     };
 
-    console.log('🎥 Начинаем рендеринг видео...');
+    // Сохраняем спецификацию в файл
+    fs.writeFileSync(specPath, JSON.stringify(editSpec, null, 2));
+    console.log('📄 Спецификация сохранена:', specPath);
+
+    console.log('🎥 Запускаем editly для создания видео...');
     console.log(`⏱️ Длительность: ${duration} секунд`);
-    console.log(`🏃 Быстрый режим: ${fast ? 'включен' : 'выключен'}`);
     
-    // Создание видео с помощью Editly
-    await editly(editSpec);
+    // Создаем видео через editly CLI
+    await createVideoWithEditly(specPath, outputPath, { fast });
     
     console.log('✅ Видео создано успешно!');
     
-    // Удаляем временное изображение
-    if (fs.existsSync(imagePath)) {
-      fs.unlinkSync(imagePath);
-      console.log('🧹 Временные файлы удалены');
+    // Удаляем временные файлы
+    [imagePath, specPath].forEach(file => {
+      if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+      }
+    });
+    console.log('🧹 Временные файлы удалены');
+    
+    // Проверяем что видео создано
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('Видео файл не был создан');
     }
     
-    // Получаем информацию о созданном видео
     const stats = fs.statSync(outputPath);
     const fileSizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
     
     console.log(`📊 Размер файла: ${fileSizeInMB} MB`);
     
-    // Возвращаем успешный ответ
     res.json({
       success: true,
       message: 'Новостное видео создано успешно! 🎬',
@@ -219,11 +273,6 @@ app.post('/api/create-news-video', async (req, res) => {
         title: title,
         channelName: channelName,
         created: new Date().toISOString()
-      },
-      processing: {
-        fastMode: fast,
-        renderTime: 'Зависит от длительности и сложности',
-        estimated: `${fast ? '~30' : '~120'} секунд для ${duration}с видео`
       }
     });
     
@@ -237,41 +286,57 @@ app.post('/api/create-news-video', async (req, res) => {
   }
 });
 
-// API для быстрого превью (низкое качество)
-app.post('/api/create-preview', async (req, res) => {
-  console.log('🚀 Запрос на создание превью');
+// Простой тест эндпоинт
+app.post('/api/test', async (req, res) => {
+  console.log('🧪 Тестовый запрос');
   
-  const requestBody = {
-    ...req.body,
-    fast: true,
-    duration: Math.min(req.body.duration || 30, 30) // Максимум 30 секунд для превью
-  };
-  
-  // Перенаправляем на основной endpoint с принудительным fast режимом
-  req.body = requestBody;
-  return app._router.handle({ ...req, url: '/api/create-news-video', method: 'POST' }, res);
+  try {
+    // Проверяем что editly CLI доступен
+    const testProcess = spawn('npx', ['editly', '--help'], {
+      stdio: 'pipe'
+    });
+    
+    let output = '';
+    testProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    testProcess.on('close', (code) => {
+      res.json({
+        success: true,
+        message: 'API сервер работает!',
+        editlyAvailable: code === 0,
+        editlyOutput: output.substring(0, 200) + '...',
+        environment: {
+          nodeVersion: process.version,
+          platform: process.platform,
+          cwd: process.cwd()
+        }
+      });
+    });
+    
+  } catch (error) {
+    res.json({
+      success: false,
+      message: 'Ошибка тестирования',
+      error: error.message
+    });
+  }
 });
 
-// Скачивание готового видео
+// Скачивание видео
 app.get('/api/download/:filename', (req, res) => {
   const filename = req.params.filename;
   const filepath = path.join(__dirname, 'outputs', filename);
   
-  console.log(`📥 Запрос на скачивание: ${filename}`);
-  
   if (!fs.existsSync(filepath)) {
-    console.log('❌ Файл не найден:', filepath);
-    return res.status(404).json({ 
-      error: 'Файл не найден',
-      filename: filename 
-    });
+    return res.status(404).json({ error: 'Файл не найден' });
   }
   
-  console.log('✅ Отправляем файл для скачивания');
   res.download(filepath, filename);
 });
 
-// Стриминг видео для просмотра
+// Стриминг видео
 app.get('/api/stream/:filename', (req, res) => {
   const filename = req.params.filename;
   const filepath = path.join(__dirname, 'outputs', filename);
@@ -308,114 +373,40 @@ app.get('/api/stream/:filename', (req, res) => {
   }
 });
 
-// Превью изображения видео (первый кадр)
-app.get('/api/preview/:filename', (req, res) => {
-  const filename = req.params.filename;
-  const videoPath = path.join(__dirname, 'outputs', filename);
-  
-  if (!fs.existsSync(videoPath)) {
-    return res.status(404).json({ error: 'Видео не найдено' });
-  }
-  
-  // Для простоты возвращаем информацию о файле
-  const stats = fs.statSync(videoPath);
-  res.json({
-    filename: filename,
-    size: `${(stats.size / (1024 * 1024)).toFixed(2)} MB`,
-    created: stats.birthtime,
-    streamUrl: `/api/stream/${filename}`,
-    downloadUrl: `/api/download/${filename}`
-  });
-});
-
-// Список созданных видео
-app.get('/api/videos', (req, res) => {
-  const outputsDir = path.join(__dirname, 'outputs');
-  
-  if (!fs.existsSync(outputsDir)) {
-    return res.json({ videos: [] });
-  }
-  
-  const files = fs.readdirSync(outputsDir)
-    .filter(file => file.endsWith('.mp4'))
-    .map(filename => {
-      const filepath = path.join(outputsDir, filename);
-      const stats = fs.statSync(filepath);
-      return {
-        filename,
-        size: `${(stats.size / (1024 * 1024)).toFixed(2)} MB`,
-        created: stats.birthtime,
-        downloadUrl: `/api/download/${filename}`,
-        streamUrl: `/api/stream/${filename}`
-      };
-    })
-    .sort((a, b) => new Date(b.created) - new Date(a.created));
-  
-  res.json({
-    videos: files,
-    total: files.length
-  });
-});
-
-// Главная страница с документацией
+// Главная страница
 app.get('/', (req, res) => {
   res.json({
     message: '🎬 Editly News Video API на Railway',
-    version: '1.0.0',
-    description: 'API для автоматического создания новостных видео',
+    version: '2.0.0',
+    description: 'API для создания новостных видео через editly CLI',
     
     endpoints: {
+      test: 'POST /api/test',
       createVideo: 'POST /api/create-news-video',
-      createPreview: 'POST /api/create-preview',
-      listVideos: 'GET /api/videos',
       download: 'GET /api/download/:filename',
-      stream: 'GET /api/stream/:filename',
-      preview: 'GET /api/preview/:filename'
+      stream: 'GET /api/stream/:filename'
     },
     
     example: {
       endpoint: '/api/create-news-video',
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
       body: {
         title: '🔥 Важная новость дня',
         backgroundImage: 'https://images.unsplash.com/photo-xxxx',
         duration: 149,
-        channelName: '📺 НОВОСТНОЙ КАНАЛ',
-        subscribeText: '👆 ПОДПИШИСЬ НА КАНАЛ!',
         fast: false
       }
     },
-    
-    features: [
-      '🎯 Создание новостных видео по шаблону',
-      '⚡ Быстрый режим для превью',
-      '📱 Стриминг и скачивание',
-      '🎨 Кастомизация титров и стилей',
-      '🔄 Автоматическое масштабирование изображений'
-    ],
     
     status: 'Готов к работе! 🚀'
   });
 });
 
-// Обработка ошибок
-app.use((error, req, res, next) => {
-  console.error('💥 Серверная ошибка:', error);
-  res.status(500).json({
-    error: 'Внутренняя ошибка сервера',
-    message: error.message
-  });
-});
-
-// Запуск сервера
 app.listen(PORT, '0.0.0.0', () => {
   console.log('🎬 ===== EDITLY NEWS VIDEO API =====');
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
   console.log(`🌐 URL: http://localhost:${PORT}`);
-  console.log('📚 Документация: GET /');
+  console.log('🧪 Тест: POST /api/test');
   console.log('🎥 Создание видео: POST /api/create-news-video');
   console.log('✅ Готов к созданию новостных видео!');
   console.log('=====================================');
