@@ -196,7 +196,9 @@ function createUltraSimpleVideo(videoPaths, audioPath, outputPath, duration) {
       '-i', concatFile,
       '-i', audioPath,
       '-c:v', 'copy',  // Копируем видео БЕЗ обработки
-      '-c:a', 'aac',   // Перекодируем только аудио
+      '-c:a', 'aac',   // Перекодируем аудио в AAC
+      '-map', '0:v',   // Видео из первого входа (concat)
+      '-map', '1:a',   // Аудио из второго входа (audio file)
       '-t', duration.toString(),
       '-y',
       outputPath
@@ -204,6 +206,9 @@ function createUltraSimpleVideo(videoPaths, audioPath, outputPath, duration) {
 
     console.log('🚀 Запуск простейшего FFmpeg');
     console.log('Команда:', ['ffmpeg', ...ffmpegArgs].join(' '));
+    console.log(`📁 Concat файл: ${concatFile}`);
+    console.log(`🎵 Аудио файл: ${audioPath} (${fs.existsSync(audioPath) ? 'EXISTS' : 'MISSING'})`);
+    console.log(`📺 Выходной файл: ${outputPath}`);
 
     const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, { stdio: 'pipe' });
 
@@ -213,6 +218,12 @@ function createUltraSimpleVideo(videoPaths, audioPath, outputPath, duration) {
       const line = data.toString().trim();
       if (line.includes('time=')) {
         console.log('⚡', line.match(/time=[\d:.]*/)?.[0] || 'processing...');
+      }
+      if (line.includes('Stream #')) {
+        console.log('📺 Stream info:', line);
+      }
+      if (line.includes('Input #')) {
+        console.log('📥 Input info:', line);
       }
     });
 
@@ -282,11 +293,31 @@ app.post('/api/create-news-video', async (req, res) => {
       });
     }
 
-    // Сохраняем аудио файл
+    // ИСПРАВЛЕННОЕ сохранение аудио файла
     const audioPath = path.join(tempDir, 'audio.mp3');
-    const audioBuffer = Buffer.from(audio.data, 'base64');
-    fs.writeFileSync(audioPath, audioBuffer);
-    console.log(`💾 Аудио сохранено: ${(audioBuffer.length / 1024).toFixed(1)} KB`);
+    
+    if (!audio || !audio.data) {
+      return res.status(400).json({ 
+        error: 'Требуется аудио файл (audio.data в base64)'
+      });
+    }
+    
+    try {
+      const audioBuffer = Buffer.from(audio.data, 'base64');
+      fs.writeFileSync(audioPath, audioBuffer);
+      console.log(`💾 Аудио сохранено: ${(audioBuffer.length / 1024).toFixed(1)} KB`);
+      
+      // ПРОВЕРЯЕМ что аудио файл создался
+      if (!fs.existsSync(audioPath)) {
+        throw new Error('Аудио файл не был создан');
+      }
+      
+      const audioStats = fs.statSync(audioPath);
+      console.log(`✅ Аудио файл проверен: ${(audioStats.size / 1024).toFixed(1)} KB`);
+    } catch (error) {
+      console.error('❌ Ошибка сохранения аудио:', error);
+      throw new Error(`Ошибка сохранения аудио: ${error.message}`);
+    }
 
     // Ограничиваем количество видео
     const limitedVideos = videos.slice(0, 4);
