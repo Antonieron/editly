@@ -1,10 +1,11 @@
-# Dockerfile для Editly на Railway (ИСПРАВЛЕННЫЙ)
+# Dockerfile для Editly на Railway (БЕЗ глобальной установки)
 FROM node:18-bullseye
 
-# Установка системных зависимостей для editly
+# Установка системных зависимостей
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
+    python \
     build-essential \
     libcairo2-dev \
     libpango1.0-dev \
@@ -16,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     libglew-dev \
     pkg-config \
     xvfb \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -23,11 +25,8 @@ WORKDIR /app
 # Копируем package.json
 COPY package.json ./
 
-# Устанавливаем зависимости проекта
+# Устанавливаем зависимости проекта (включая editly локально)
 RUN npm install --omit=dev
-
-# ВАЖНО: Устанавливаем editly глобально
-RUN npm install -g editly
 
 # Копируем весь проект
 COPY . .
@@ -35,8 +34,8 @@ COPY . .
 # Создаем директории
 RUN mkdir -p uploads outputs temp
 
-# Проверяем что editly установлен
-RUN which editly && editly --version
+# Проверяем что локальный editly установлен
+RUN ls -la node_modules/.bin/editly || echo "editly не найден в node_modules"
 
 ENV NODE_ENV=production
 ENV PORT=3000
