@@ -1,7 +1,7 @@
 # Dockerfile для Editly на Railway (ИСПРАВЛЕННЫЙ)
 FROM node:18-bullseye
 
-# Установка системных зависимостей
+# Установка системных зависимостей для editly
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
@@ -18,27 +18,30 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-# Рабочая директория
 WORKDIR /app
 
 # Копируем package.json
 COPY package.json ./
 
-# Устанавливаем зависимости (БЕЗ package-lock.json)
-RUN npm install --production --legacy-peer-deps
+# Устанавливаем зависимости проекта
+RUN npm install --omit=dev
+
+# ВАЖНО: Устанавливаем editly глобально
+RUN npm install -g editly
 
 # Копируем весь проект
 COPY . .
 
-# Создаем необходимые директории
-RUN mkdir -p uploads outputs temp examples
+# Создаем директории
+RUN mkdir -p uploads outputs temp
 
-# Переменные окружения
+# Проверяем что editly установлен
+RUN which editly && editly --version
+
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV DISPLAY=:99
 
-# Экспонируем порт
 EXPOSE 3000
 
 # Запуск с виртуальным дисплеем
