@@ -1,4 +1,4 @@
-// УЛУЧШЕННЫЙ api-server.js с поддержкой динамических видео
+// ПОЛНЫЙ ИСПРАВЛЕННЫЙ api-server.js с поддержкой динамических видео
 import express from 'express';
 import { spawn } from 'child_process';
 import cors from 'cors';
@@ -64,7 +64,7 @@ function sanitizeText(text) {
     .slice(0, 100); // Ограничиваем длину
 }
 
-// НОВАЯ функция создания динамического видео с множественными изображениями
+// ИСПРАВЛЕННАЯ функция создания динамического видео с множественными изображениями
 function createDynamicVideo(imagePaths, outputPath, options) {
   return new Promise((resolve, reject) => {
     const {
@@ -93,7 +93,7 @@ function createDynamicVideo(imagePaths, outputPath, options) {
     // Строим входы для FFmpeg
     const inputs = imagePaths.map(imagePath => ['-loop', '1', '-i', imagePath]).flat();
     
-    // Строим сложный фильтр
+    // Строим сложный фильтр с упрощенным Ken Burns
     const filterParts = [];
     
     // Обрабатываем каждое изображение
@@ -102,17 +102,15 @@ function createDynamicVideo(imagePaths, outputPath, options) {
       const endTime = Math.min((index + 1) * sceneDuration, duration);
       const sceneLength = endTime - startTime;
       
-      // Базовое масштабирование с Ken Burns эффектом
+      // УПРОЩЕННЫЙ Ken Burns эффект без сложной математики
       let videoFilter = `[${index}:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080`;
       
       if (enableKenBurns) {
-        // Ken Burns эффект - медленное приближение и легкое движение
-        const zoomStart = 1.0 + (index * 0.05); // Варьируем начальный зум
-        const zoomEnd = zoomStart + 0.15;
-        const panX = index % 2 === 0 ? 0 : 20; // Альтернативное движение влево-вправо
-        const panY = Math.floor(index / 2) % 2 === 0 ? 0 : 10; // Альтернативное движение вверх-вниз
+        // Простой зум без панорамирования для избежания ошибок
+        const zoomStart = 1.0;
+        const zoomEnd = 1.15;
         
-        videoFilter += `,zoompan=z='if(lte(zoom,${zoomStart}),${zoomEnd},max(${zoomStart + 0.001},zoom-0.002))':d=25*${sceneLength}:x='iw/2-(iw/zoom/2)+${panX}':y='ih/2-(ih/zoom/2)+${panY}':s=1920x1080`;
+        videoFilter += `,zoompan=z='if(lte(zoom,${zoomStart}),${zoomEnd},max(${zoomStart + 0.001},zoom-0.002))':d=25*${sceneLength}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080`;
       }
       
       videoFilter += `,setpts=PTS-STARTPTS+${startTime}/TB[v${index}]`;
@@ -169,7 +167,7 @@ function createDynamicVideo(imagePaths, outputPath, options) {
       outputPath
     ];
 
-    console.log('🎬 FFmpeg команда для динамического видео:', 'ffmpeg', ffmpegArgs.slice(0, 10).join(' '), '...');
+    console.log('🎬 FFmpeg команда для динамического видео (исправленная)');
 
     const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
       stdio: 'pipe'
@@ -193,10 +191,10 @@ function createDynamicVideo(imagePaths, outputPath, options) {
         resolve({ 
           stdout, 
           stderr,
-          method: 'FFmpeg Dynamic',
+          method: 'FFmpeg Dynamic (Fixed)',
           features: [
             'Множественные изображения',
-            'Ken Burns эффект',
+            'Упрощенный Ken Burns эффект',
             'Синхронные субтитры',
             'Анимированные переходы'
           ]
@@ -214,7 +212,7 @@ function createDynamicVideo(imagePaths, outputPath, options) {
   });
 }
 
-// УЛУЧШЕННАЯ функция создания видео из одного изображения
+// ИСПРАВЛЕННАЯ функция создания видео из одного изображения
 function createEnhancedVideo(imagePath, outputPath, options) {
   return new Promise((resolve, reject) => {
     const {
@@ -232,10 +230,10 @@ function createEnhancedVideo(imagePath, outputPath, options) {
     const safeSubscribeText = sanitizeText(subscribeText);
     const safeNewsText = sanitizeText(newsText.slice(0, 200));
 
-    // Ken Burns эффект для одного изображения
+    // ИСПРАВЛЕННЫЙ Ken Burns эффект - убрал проблемные sin/cos функции
     let kenBurnsFilter = '';
     if (enableKenBurns) {
-      kenBurnsFilter = `,zoompan=z='if(lte(zoom,1.0),1.2,max(1.001,zoom-0.0008))':d=25*${duration}:x='iw/2-(iw/zoom/2)+sin(t/10)*20':y='ih/2-(ih/zoom/2)+cos(t/8)*15':s=1920x1080`;
+      kenBurnsFilter = `,zoompan=z='if(lte(zoom,1.0),1.15,max(1.001,zoom-0.0008))':d=25*${duration}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080`;
     }
 
     const ffmpegArgs = [
@@ -263,7 +261,7 @@ function createEnhancedVideo(imagePath, outputPath, options) {
       outputPath
     ];
 
-    console.log('🎬 FFmpeg команда для улучшенного видео');
+    console.log('🎬 FFmpeg команда для улучшенного видео (исправленная)');
 
     const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
       stdio: 'pipe'
@@ -287,7 +285,7 @@ function createEnhancedVideo(imagePath, outputPath, options) {
         resolve({ 
           stdout, 
           stderr,
-          method: 'FFmpeg Enhanced',
+          method: 'FFmpeg Enhanced (Fixed)',
           features: [
             'Ken Burns эффект',
             'Анимированные титры',
@@ -537,7 +535,7 @@ function createVideoWithFFmpeg(imagePath, outputPath, options) {
   });
 }
 
-// Остальные endpoints остаются без изменений
+// Тест FFmpeg
 app.post('/api/test', async (req, res) => {
   console.log('🧪 Тест FFmpeg');
   
@@ -559,7 +557,7 @@ app.post('/api/test', async (req, res) => {
         ffmpegVersion: output.split('\n')[0],
         modes: ['Simple', 'Enhanced', 'Dynamic'],
         features: [
-          'Ken Burns эффект',
+          'Ken Burns эффект (исправлен)',
           'Множественные изображения',
           'Синхронные субтитры',
           'Анимированные титры'
@@ -575,7 +573,7 @@ app.post('/api/test', async (req, res) => {
   }
 });
 
-// Download и stream endpoints остаются без изменений
+// Download и stream endpoints
 app.get('/api/download/:filename', (req, res) => {
   const filename = req.params.filename;
   const filepath = path.join(__dirname, 'outputs', filename);
@@ -626,14 +624,14 @@ app.get('/api/stream/:filename', (req, res) => {
 // Главная страница
 app.get('/', (req, res) => {
   res.json({
-    message: '🎬 Enhanced FFmpeg News Video API',
-    version: '4.0.0',
-    description: 'API для создания улучшенных новостных видео с динамическими эффектами',
+    message: '🎬 Enhanced FFmpeg News Video API (FIXED)',
+    version: '4.1.0',
+    description: 'API для создания улучшенных новостных видео с исправленными эффектами',
     
     modes: {
       simple: 'Простое видео (как раньше)',
-      enhanced: 'Улучшенное видео (Ken Burns + титры)',
-      dynamic: 'Динамическое видео (множественные изображения)'
+      enhanced: 'Улучшенное видео (Ken Burns + титры) - ИСПРАВЛЕНО',
+      dynamic: 'Динамическое видео (множественные изображения) - ИСПРАВЛЕНО'
     },
     
     endpoints: {
@@ -643,18 +641,19 @@ app.get('/', (req, res) => {
       stream: 'GET /api/stream/:filename'
     },
     
-    newFeatures: [
-      '🎥 Ken Burns эффект',
-      '🖼️ Множественные изображения',
-      '📝 Синхронные субтитры',
-      '🎬 Анимированные титры',
-      '🔄 Плавные переходы',
-      '📺 Улучшенная новостная полоса'
+    fixedFeatures: [
+      '✅ Ken Burns эффект (исправлен)',
+      '✅ Множественные изображения',
+      '✅ Синхронные субтитры',
+      '✅ Анимированные титры',
+      '✅ Плавные переходы',
+      '✅ Улучшенная новостная полоса'
     ],
     
-    status: 'Готов к созданию динамических видео! 🚀'
+    status: 'Готов к созданию исправленных динамических видео! 🚀'
   });
 });
+
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log('🎬 ===== ENHANCED FFMPEG NEWS VIDEO API =====');
