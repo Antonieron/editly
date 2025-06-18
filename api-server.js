@@ -291,17 +291,17 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
       
       console.log(`🎬 Сцена ${index + 1}: ${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s`);
       
-      // УПРОЩЕННЫЙ Ken Burns эффект (убираем сложную математику)
+      // МАКСИМАЛЬНО УПРОЩЕННЫЙ Ken Burns эффект (без сложных выражений)
       let videoFilter = `[${index}:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080`;
       
       if (enableKenBurns) {
-        // Простые, надежные эффекты
+        // Используем только базовые числовые значения без математики
         if (index % 2 === 0) {
-          // Приближение
-          videoFilter += `,zoompan=z='min(1.3,1.0+0.001*t)':d=25*${sceneLength}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080`;
+          // Простое приближение с фиксированными значениями
+          videoFilter += `,zoompan=z=1.2:d=25*${sceneLength}:x=iw/2-iw/zoom/2:y=ih/2-ih/zoom/2:s=1920x1080`;
         } else {
-          // Отдаление
-          videoFilter += `,zoompan=z='max(1.0,1.3-0.001*t)':d=25*${sceneLength}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080`;
+          // Простое отдаление с фиксированными значениями  
+          videoFilter += `,zoompan=z=1.1:d=25*${sceneLength}:x=iw/2-iw/zoom/2:y=ih/2-ih/zoom/2:s=1920x1080`;
         }
       }
       
@@ -316,8 +316,8 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
       const subtitleEnd = endTime - 0.5;
       
       if (subtitleText && subtitleText.length > 3) {
-        // ПРОСТОЙ drawtext без сложных параметров
-        filterParts.push(`[v${index}]drawtext=text='${subtitleText}':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=h-120:box=1:boxcolor=black@0.8:boxborderw=8:enable='between(t,${subtitleStart.toFixed(1)},${subtitleEnd.toFixed(1)})'[v${index}s]`);
+        // МАКСИМАЛЬНО ПРОСТОЙ drawtext без сложных параметров
+        filterParts.push(`[v${index}]drawtext=text='${subtitleText}':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=h-120:box=1:boxcolor=black@0.8:boxborderw=8[v${index}s]`);
       } else {
         filterParts.push(`[v${index}]copy[v${index}s]`);
       }
@@ -333,7 +333,7 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
     filterParts.push(`[vbar]drawtext=text='ВАЖНЫЕ НОВОСТИ':fontsize=28:fontcolor=white:x=(w-text_w)/2:y=25[vtop]`);
     
     if (safeTitle.length > 0) {
-      filterParts.push(`[vtop]drawtext=text='${safeTitle}':fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=300:box=1:boxcolor=black@0.8:boxborderw=10:enable='between(t,1,8)'[vtitle]`);
+      filterParts.push(`[vtop]drawtext=text='${safeTitle}':fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=300:box=1:boxcolor=black@0.8:boxborderw=10[vtitle]`);
     } else {
       filterParts.push(`[vtop]copy[vtitle]`);
     }
@@ -345,8 +345,7 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
     }
     
     if (safeSubscribeText.length > 0) {
-      const subscribeStart = Math.max(0, duration - 6);
-      filterParts.push(`[vchannel]drawtext=text='${safeSubscribeText}':fontsize=32:fontcolor=black:x=(w-text_w)/2:y=h-60:box=1:boxcolor=yellow@0.9:boxborderw=8:enable='between(t,${subscribeStart.toFixed(1)},${duration})'[vfinal]`);
+      filterParts.push(`[vchannel]drawtext=text='${safeSubscribeText}':fontsize=32:fontcolor=black:x=(w-text_w)/2:y=h-60:box=1:boxcolor=yellow@0.9:boxborderw=8[vfinal]`);
     } else {
       filterParts.push(`[vchannel]copy[vfinal]`);
     }
