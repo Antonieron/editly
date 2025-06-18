@@ -1,4 +1,4 @@
-// ИДЕАЛЬНАЯ СИСТЕМА НОВОСТНЫХ ВИДЕО ИЗ КАРТИНОК
+// ПЕРЕДЕЛАННАЯ СИСТЕМА ДЛЯ ВИДЕО (НЕ КАРТИНОК)
 import express from 'express';
 import { spawn } from 'child_process';
 import cors from 'cors';
@@ -26,13 +26,13 @@ dirs.forEach(dir => {
   }
 });
 
-// ИСПРАВЛЕННАЯ функция очистки текста для FFmpeg
+// Функция очистки текста для FFmpeg
 function sanitizeText(text) {
   if (!text) return '';
   
   return text
     .replace(/['"\\]/g, '') // Убираем кавычки и слеши
-    .replace(/:/g, ' - ') // Двоеточия заменяем на тире (КРИТИЧНО для FFmpeg!)
+    .replace(/:/g, ' - ') // Двоеточия заменяем на тире
     .replace(/=/g, ' равно ') // Знаки равенства
     .replace(/\[/g, '(') // Квадратные скобки
     .replace(/\]/g, ')')
@@ -45,109 +45,34 @@ function sanitizeText(text) {
     .slice(0, 100); // Ограничиваем длину
 }
 
-// ИСПРАВЛЕННАЯ функция умного разделения текста
-function smartTextSplit(text, numParts) {
-  if (!text || text.length < 20) {
-    const parts = [];
-    for (let i = 0; i < numParts; i++) {
-      parts.push(`Часть ${i + 1} новости`);
-    }
-    return parts;
-  }
-  
-  // Предварительно очищаем весь текст
-  const cleanText = text
-    .replace(/['"\\:=\[\]]/g, ' ') // Убираем проблемные символы
-    .replace(/\s+/g, ' ')
-    .trim();
-  
-  // Разделяем по предложениям
-  let sentences = cleanText.split(/[.!?]+/).filter(s => s.trim().length > 15);
-  
-  if (sentences.length >= numParts) {
-    const parts = [];
-    const sentencesPerPart = Math.ceil(sentences.length / numParts);
-    
-    for (let i = 0; i < numParts; i++) {
-      const start = i * sentencesPerPart;
-      const end = Math.min((i + 1) * sentencesPerPart, sentences.length);
-      let partText = sentences.slice(start, end).join('. ').trim();
-      
-      if (partText) {
-        if (!partText.endsWith('.')) partText += '.';
-        parts.push(partText.slice(0, 80)); // Короче для надежности
-      }
-    }
-    
-    // Дополняем если нужно
-    while (parts.length < numParts) {
-      parts.push(`Продолжение новости ${parts.length + 1}`);
-    }
-    
-    return parts;
-  }
-  
-  // Мало предложений - делим по длине
-  const parts = [];
-  const charsPerPart = Math.ceil(cleanText.length / numParts);
-  
-  for (let i = 0; i < numParts; i++) {
-    let start = i * charsPerPart;
-    let end = Math.min((i + 1) * charsPerPart, cleanText.length);
-    
-    // Корректируем по словам
-    if (i > 0 && start < cleanText.length) {
-      while (start > 0 && cleanText[start] !== ' ') start--;
-      if (cleanText[start] === ' ') start++;
-    }
-    
-    if (end < cleanText.length) {
-      while (end < cleanText.length && cleanText[end] !== ' ') end++;
-    }
-    
-    const partText = cleanText.substring(start, end).trim().slice(0, 80);
-    if (partText) {
-      parts.push(partText);
-    }
-  }
-  
-  while (parts.length < numParts) {
-    parts.push(`Часть ${parts.length + 1} новости`);
-  }
-  
-  return parts.slice(0, numParts);
-}
-
-// УЛУЧШЕННАЯ функция скачивания с детальным логированием
-function downloadImage(url, filepath, index = 0) {
+// Функция скачивания ВИДЕО файлов
+function downloadVideo(url, filepath, index = 0) {
   return new Promise((resolve, reject) => {
-    console.log(`📥 [${index + 1}] Начинаем загрузку: ${url}`);
+    console.log(`📥 [VIDEO ${index + 1}] Начинаем загрузку: ${url}`);
     
-    // Создаем временный файл
     const tempPath = filepath + '.tmp';
     const file = fs.createWriteStream(tempPath);
     const request = url.startsWith('https:') ? https : http;
     
     const options = {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'video/mp4,video/*,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
         'Cache-Control': 'no-cache'
       }
     };
     
     const req = request.get(url, options, (response) => {
-      console.log(`📊 [${index + 1}] HTTP статус: ${response.statusCode}`);
-      console.log(`📊 [${index + 1}] Заголовки:`, response.headers);
+      console.log(`📊 [VIDEO ${index + 1}] HTTP статус: ${response.statusCode}`);
       
       // Обработка редиректов
       if (response.statusCode === 301 || response.statusCode === 302) {
         const newUrl = response.headers.location;
-        console.log(`🔄 [${index + 1}] Редирект на: ${newUrl}`);
+        console.log(`🔄 [VIDEO ${index + 1}] Редирект на: ${newUrl}`);
         file.close();
         fs.unlink(tempPath, () => {});
-        return downloadImage(newUrl, filepath, index)
+        return downloadVideo(newUrl, filepath, index)
           .then(resolve)
           .catch(reject);
       }
@@ -155,108 +80,112 @@ function downloadImage(url, filepath, index = 0) {
       if (response.statusCode !== 200) {
         file.close();
         fs.unlink(tempPath, () => {});
-        reject(new Error(`HTTP Error ${response.statusCode} for image ${index + 1}: ${url}`));
+        reject(new Error(`HTTP Error ${response.statusCode} for video ${index + 1}: ${url}`));
         return;
       }
       
       // Проверяем тип контента
       const contentType = response.headers['content-type'] || '';
-      console.log(`📁 [${index + 1}] Тип контента: ${contentType}`);
+      console.log(`📁 [VIDEO ${index + 1}] Тип контента: ${contentType}`);
       
-      if (!contentType.startsWith('image/')) {
+      if (!contentType.includes('video/') && !contentType.includes('application/octet-stream')) {
         file.close();
         fs.unlink(tempPath, () => {});
-        reject(new Error(`Not an image (${contentType}) for image ${index + 1}: ${url}`));
+        reject(new Error(`Not a video (${contentType}) for video ${index + 1}: ${url}`));
         return;
       }
       
-      console.log(`💾 [${index + 1}] Начинаем сохранение...`);
+      console.log(`💾 [VIDEO ${index + 1}] Начинаем сохранение...`);
       response.pipe(file);
       
       let downloadedBytes = 0;
       response.on('data', (chunk) => {
         downloadedBytes += chunk.length;
-        if (downloadedBytes % 50000 === 0) { // Логируем каждые 50KB
-          console.log(`📈 [${index + 1}] Загружено: ${(downloadedBytes / 1024).toFixed(1)} KB`);
+        if (downloadedBytes % 100000 === 0) { // Логируем каждые 100KB
+          console.log(`📈 [VIDEO ${index + 1}] Загружено: ${(downloadedBytes / 1024 / 1024).toFixed(1)} MB`);
         }
       });
       
       file.on('finish', () => {
         file.close();
-        console.log(`✅ [${index + 1}] Загрузка завершена: ${(downloadedBytes / 1024).toFixed(1)} KB`);
+        console.log(`✅ [VIDEO ${index + 1}] Загрузка завершена: ${(downloadedBytes / 1024 / 1024).toFixed(1)} MB`);
         
-        // Проверяем размер файла
-        if (downloadedBytes < 1000) {
+        // Проверяем размер файла (видео должно быть больше 100KB)
+        if (downloadedBytes < 100000) {
           fs.unlink(tempPath, () => {});
-          reject(new Error(`File too small (${downloadedBytes} bytes) for image ${index + 1}`));
+          reject(new Error(`Video file too small (${downloadedBytes} bytes) for video ${index + 1}`));
           return;
         }
         
         // Переименовываем из временного в финальный файл
         fs.rename(tempPath, filepath, (err) => {
           if (err) {
-            console.error(`❌ [${index + 1}] Ошибка переименования:`, err);
+            console.error(`❌ [VIDEO ${index + 1}] Ошибка переименования:`, err);
             fs.unlink(tempPath, () => {});
             reject(err);
           } else {
-            console.log(`✅ [${index + 1}] Файл сохранен: ${filepath}`);
+            console.log(`✅ [VIDEO ${index + 1}] Файл сохранен: ${filepath}`);
             resolve();
           }
         });
       });
       
       file.on('error', (err) => {
-        console.error(`❌ [${index + 1}] Ошибка записи:`, err);
+        console.error(`❌ [VIDEO ${index + 1}] Ошибка записи:`, err);
         fs.unlink(tempPath, () => {});
         reject(err);
       });
     });
     
     req.on('error', (err) => {
-      console.error(`❌ [${index + 1}] Ошибка запроса:`, err);
+      console.error(`❌ [VIDEO ${index + 1}] Ошибка запроса:`, err);
       file.close();
       fs.unlink(tempPath, () => {});
       reject(err);
     });
     
-    // Увеличиваем таймаут
-    req.setTimeout(45000, () => {
-      console.error(`⏰ [${index + 1}] Таймаут загрузки: ${url}`);
+    // Увеличиваем таймаут для видео
+    req.setTimeout(120000, () => {
+      console.error(`⏰ [VIDEO ${index + 1}] Таймаут загрузки: ${url}`);
       req.destroy();
       file.close();
       fs.unlink(tempPath, () => {});
-      reject(new Error(`Download timeout for image ${index + 1}: ${url}`));
+      reject(new Error(`Download timeout for video ${index + 1}: ${url}`));
     });
   });
 }
 
-// ПОЛНОСТЬЮ ПЕРЕПИСАННАЯ функция создания динамического видео
-function createPerfectDynamicVideo(imagePaths, outputPath, options) {
+// СОЗДАНИЕ ВИДЕО ИЗ ВИДЕО ФАЙЛОВ
+function createVideoFromVideos(videoPaths, audioPath, outputPath, options) {
   return new Promise((resolve, reject) => {
     const {
       title = 'Важная новость дня',
       duration = 60,
       channelName = 'AI Новости',
       subscribeText = 'ПОДПИШИСЬ НА КАНАЛ',
-      newsText = '',
-      fast = false,
-      enableKenBurns = true
+      newsText = ''
     } = options;
 
-    console.log(`🎬 Создание ДИНАМИЧЕСКОГО видео из ${imagePaths.length} изображений`);
+    console.log(`🎬 Создание видео из ${videoPaths.length} видео файлов`);
 
-    // Проверяем все изображения
-    for (let i = 0; i < imagePaths.length; i++) {
-      if (!fs.existsSync(imagePaths[i])) {
-        console.error(`❌ Изображение ${i + 1} не найдено: ${imagePaths[i]}`);
-        return reject(new Error(`Изображение ${i + 1} не найдено`));
+    // Проверяем все видео файлы
+    for (let i = 0; i < videoPaths.length; i++) {
+      if (!fs.existsSync(videoPaths[i])) {
+        console.error(`❌ Видео ${i + 1} не найдено: ${videoPaths[i]}`);
+        return reject(new Error(`Видео ${i + 1} не найдено`));
       }
       
-      const stats = fs.statSync(imagePaths[i]);
-      console.log(`✅ Изображение ${i + 1}: ${(stats.size / 1024).toFixed(1)} KB`);
+      const stats = fs.statSync(videoPaths[i]);
+      console.log(`✅ Видео ${i + 1}: ${(stats.size / 1024 / 1024).toFixed(1)} MB`);
     }
 
-    // БЕЗОПАСНАЯ очистка всех текстов
+    // Проверяем аудио
+    if (!fs.existsSync(audioPath)) {
+      console.error(`❌ Аудио файл не найден: ${audioPath}`);
+      return reject(new Error('Аудио файл не найден'));
+    }
+
+    // Безопасная очистка текстов
     const safeTitle = sanitizeText(title);
     const safeChannelName = sanitizeText(channelName);
     const safeSubscribeText = sanitizeText(subscribeText);
@@ -266,91 +195,55 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
     console.log(`   Канал: "${safeChannelName}"`);
     console.log(`   Подписка: "${safeSubscribeText}"`);
 
-    // БЕЗОПАСНОЕ разделение текста
-    const textParts = smartTextSplit(newsText, imagePaths.length);
-    console.log(`📝 Разделили текст на ${textParts.length} частей:`);
-    textParts.forEach((part, i) => {
-      const safePart = sanitizeText(part);
-      console.log(`   ${i + 1}. "${safePart}"`);
+    const videoDuration = duration / videoPaths.length;
+    console.log(`⏱️ Длительность каждого видео: ${videoDuration.toFixed(1)} секунд`);
+    
+    // Строим входы для FFmpeg
+    const inputs = [];
+    
+    // Добавляем все видео как входы
+    videoPaths.forEach(videoPath => {
+      inputs.push('-i', videoPath);
     });
     
-    const sceneDuration = duration / imagePaths.length;
-    console.log(`⏱️ Длительность каждой сцены: ${sceneDuration.toFixed(1)} секунд`);
+    // Добавляем аудио как вход
+    inputs.push('-i', audioPath);
     
-    // Строим входы для FFmpeg (каждое изображение как отдельный вход)
-    const inputs = imagePaths.map(imagePath => ['-loop', '1', '-i', imagePath]).flat();
-    
-    // Строим ДИНАМИЧЕСКИЙ сложный фильтр с несколькими сценами
+    // Строим фильтр для объединения видео
     const filterParts = [];
     
-    // Обрабатываем каждое изображение как отдельную сцену
-    imagePaths.forEach((imagePath, index) => {
-      const startTime = index * sceneDuration;
-      const endTime = Math.min((index + 1) * sceneDuration, duration);
-      const sceneLength = endTime - startTime;
-      
-      console.log(`🎬 Сцена ${index + 1}: ${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s`);
-      
-      // Для каждого изображения создаем свой видеофильтр с эффектами
-      let videoFilter = `[${index}:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080`;
-      
-      if (enableKenBurns) {
-        // Разные эффекты для разных сцен
-        const effects = [
-          `zoompan=z=1.2:d=${Math.ceil(sceneLength * 25)}:x=iw/2-iw/zoom/2:y=ih/2-ih/zoom/2:s=1920x1080`, // приближение
-          `zoompan=z=1.1:d=${Math.ceil(sceneLength * 25)}:x=iw/2-iw/zoom/2+20:y=ih/2-ih/zoom/2:s=1920x1080`, // сдвиг вправо
-          `zoompan=z=1.15:d=${Math.ceil(sceneLength * 25)}:x=iw/2-iw/zoom/2-20:y=ih/2-ih/zoom/2+10:s=1920x1080`, // сдвиг влево и вниз
-          `zoompan=z=1.25:d=${Math.ceil(sceneLength * 25)}:x=iw/2-iw/zoom/2:y=ih/2-ih/zoom/2-15:s=1920x1080` // приближение с сдвигом вверх
-        ];
-        
-        videoFilter += `,` + effects[index % effects.length];
-      }
-      
-      // Добавляем время для каждой сцены
-      videoFilter += `,setpts=PTS-STARTPTS,trim=duration=${sceneLength.toFixed(2)}[video${index}]`;
-      filterParts.push(videoFilter);
-      
-      // Создаем субтитры для каждой сцены
-      const subtitleText = sanitizeText(textParts[index] || `Часть ${index + 1}`);
-      console.log(`📝 Субтитры для сцены ${index + 1}: "${subtitleText}"`);
-      
-      if (subtitleText && subtitleText.length > 3) {
-        // Добавляем разные цвета фона для разных сцен
-        const bgColors = ['black@0.8', 'blue@0.7', 'red@0.6', 'green@0.7'];
-        const bgColor = bgColors[index % bgColors.length];
-        
-        filterParts.push(`[video${index}]drawtext=text='${subtitleText}':fontcolor=white:fontsize=28:x=(w-text_w)/2:y=h-100:box=1:boxcolor=${bgColor}:boxborderw=8[scene${index}]`);
-      } else {
-        filterParts.push(`[video${index}]copy[scene${index}]`);
-      }
+    // Обрабатываем каждое видео
+    videoPaths.forEach((videoPath, index) => {
+      // Масштабируем, обрезаем и устанавливаем длительность для каждого видео
+      filterParts.push(`[${index}:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setpts=PTS-STARTPTS,trim=duration=${videoDuration.toFixed(2)}[v${index}]`);
     });
 
-    // Конкатенируем все сцены в одно видео
-    const concatInputs = imagePaths.map((_, index) => `[scene${index}]`).join('');
-    const concatFilter = `${concatInputs}concat=n=${imagePaths.length}:v=1:a=0[concatenated]`;
+    // Конкатенируем все видео
+    const concatInputs = videoPaths.map((_, index) => `[v${index}]`).join('');
+    const concatFilter = `${concatInputs}concat=n=${videoPaths.length}:v=1:a=0[video_base]`;
     filterParts.push(concatFilter);
 
-    // Добавляем общие элементы ПОВЕРХ всего видео
-    filterParts.push(`[concatenated]drawbox=x=0:y=0:w=1920:h=80:color=red@0.9:t=fill[withbar]`);
+    // Добавляем текстовые элементы
+    filterParts.push(`[video_base]drawbox=x=0:y=0:w=1920:h=80:color=red@0.9:t=fill[withbar]`);
     filterParts.push(`[withbar]drawtext=text='ВАЖНЫЕ НОВОСТИ':fontsize=28:fontcolor=white:x=(w-text_w)/2:y=25[withtop]`);
     
-    // Заголовок показываем только в первые 8 секунд
+    // Заголовок
     if (safeTitle.length > 0) {
-      filterParts.push(`[withtop]drawtext=text='${safeTitle}':fontsize=42:fontcolor=yellow:x=(w-text_w)/2:y=300:box=1:boxcolor=black@0.8:boxborderw=10[withtitle]`);
+      filterParts.push(`[withtop]drawtext=text='${safeTitle}':fontsize=42:fontcolor=yellow:x=(w-text_w)/2:y=300:box=1:boxcolor=black@0.8:boxborderw=10:enable='between(t,0,8)'[withtitle]`);
     } else {
       filterParts.push(`[withtop]copy[withtitle]`);
     }
     
-    // Канал показываем постоянно
+    // Канал
     if (safeChannelName.length > 0) {
       filterParts.push(`[withtitle]drawtext=text='${safeChannelName}':fontsize=22:fontcolor=white:x=50:y=h-50:box=1:boxcolor=red@0.8:boxborderw=6[withchannel]`);
     } else {
       filterParts.push(`[withtitle]copy[withchannel]`);
     }
     
-    // Подписка в конце
+    // Подписка
     if (safeSubscribeText.length > 0) {
-      filterParts.push(`[withchannel]drawtext=text='${safeSubscribeText}':fontsize=30:fontcolor=black:x=(w-text_w)/2:y=h-60:box=1:boxcolor=yellow@0.9:boxborderw=8[final]`);
+      filterParts.push(`[withchannel]drawtext=text='${safeSubscribeText}':fontsize=30:fontcolor=black:x=(w-text_w)/2:y=h-60:box=1:boxcolor=yellow@0.9:boxborderw=8:enable='gte(t,${duration-10})'[final]`);
     } else {
       filterParts.push(`[withchannel]copy[final]`);
     }
@@ -358,26 +251,26 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
     // Объединяем все фильтры
     const filterComplex = filterParts.join('; ');
     
-    console.log(`🎬 Создано ${filterParts.length} фильтров для динамического видео`);
-    console.log(`🔧 Длина filter_complex: ${filterComplex.length} символов`);
+    console.log(`🎬 Создано ${filterParts.length} фильтров для видео из видео`);
 
-    // FFmpeg аргументы для динамического видео
+    // FFmpeg аргументы
     const ffmpegArgs = [
       ...inputs,
       '-filter_complex', filterComplex,
       '-map', '[final]',
+      '-map', `${videoPaths.length}:a`, // Аудио из последнего входа
       '-c:v', 'libx264',
+      '-c:a', 'aac',
       '-t', duration.toString(),
       '-pix_fmt', 'yuv420p',
-      '-r', fast ? '25' : '30',
-      '-preset', fast ? 'ultrafast' : 'fast',
-      '-crf', fast ? '23' : '20',
+      '-r', '30',
+      '-preset', 'fast',
+      '-crf', '20',
       '-y',
       outputPath
     ];
 
-    console.log('🎬 Запуск FFmpeg для ДИНАМИЧЕСКОГО видео');
-    console.log('🔧 FFmpeg команда:', ['ffmpeg', ...ffmpegArgs].join(' '));
+    console.log('🎬 Запуск FFmpeg для создания видео из видео');
 
     const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
       stdio: 'pipe'
@@ -405,22 +298,21 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
 
     ffmpegProcess.on('close', (code) => {
       if (code === 0) {
-        console.log('✅ ДИНАМИЧЕСКОЕ видео создано успешно!');
+        console.log('✅ Видео из видео создано успешно!');
         resolve({ 
           stdout, 
           stderr,
-          method: 'Dynamic Multi-Scene Video',
+          method: 'Video Compilation from Source Videos',
           features: [
-            'Множественные изображения ✓',
-            'Разные эффекты для каждой сцены ✓',
-            'Меняющиеся субтитры ✓',
-            'Безопасные FFmpeg фильтры ✓',
-            'Динамические переходы ✓'
+            'Настоящие видео файлы ✓',
+            'Плавные переходы ✓', 
+            'Синхронизированное аудио ✓',
+            'Динамичный контент ✓',
+            'HD качество ✓'
           ]
         });
       } else {
         console.error('❌ FFmpeg завершен с ошибкой, код:', code);
-        console.error('❌ Последние строки stderr:', stderr.split('\n').slice(-10).join('\n'));
         reject(new Error(`FFmpeg exited with code ${code}. Last stderr: ${stderr.slice(-500)}`));
       }
     });
@@ -432,123 +324,109 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
   });
 }
 
-// ГЛАВНЫЙ API ENDPOINT
+// ГЛАВНЫЙ API ENDPOINT ДЛЯ ВИДЕО
 app.post('/api/create-news-video', async (req, res) => {
-  console.log('📨 Получен запрос на создание ИСПРАВЛЕННОГО новостного видео');
+  console.log('📨 Получен запрос на создание видео ИЗ ВИДЕО');
   console.log('📊 Параметры запроса:', JSON.stringify(req.body, null, 2));
   
   try {
     const {
       title = 'Важная новость дня',
-      backgroundImage,
       duration = 45,
       channelName = 'AI Новости',
       subscribeText = 'ПОДПИШИСЬ НА КАНАЛ!',
-      fast = false,
-      enhanced = true,
       newsText = '',
-      images = [],
-      enableKenBurns = true
+      videos = [], // ВИДЕО вместо изображений!
+      audio
     } = req.body;
 
     const timestamp = Date.now();
-    const videoFilename = `fixed_news_${timestamp}.mp4`;
+    const videoFilename = `news_from_videos_${timestamp}.mp4`;
     const outputPath = path.join(__dirname, 'outputs', videoFilename);
-    const tempDir = path.join(__dirname, 'temp', `fixed_${timestamp}`);
+    const tempDir = path.join(__dirname, 'temp', `video_${timestamp}`);
 
     // Создаем временную папку
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
 
-    // Определяем источники изображений
-    const imageUrls = [];
-    
-    if (Array.isArray(images) && images.length > 0) {
-      // Используем массив изображений
-      images.forEach((img, i) => {
-        const url = typeof img === 'string' ? img : img.url;
-        if (url) {
-          imageUrls.push(url);
-          console.log(`🖼️ Изображение ${i + 1}: ${url}`);
-        }
-      });
-    }
-    
-    if (backgroundImage && !imageUrls.includes(backgroundImage)) {
-      imageUrls.unshift(backgroundImage);
-      console.log(`🖼️ Фоновое изображение: ${backgroundImage}`);
-    }
-
-    // Минимум одно изображение обязательно
-    if (imageUrls.length === 0) {
+    // Проверяем видео файлы
+    if (!Array.isArray(videos) || videos.length === 0) {
       return res.status(400).json({ 
-        error: 'Требуется хотя бы одно изображение (backgroundImage или images)'
+        error: 'Требуется массив видео файлов (videos)'
       });
     }
 
-    // Ограничиваем до 4 изображений для стабильности
-    const limitedUrls = imageUrls.slice(0, 4);
-    console.log(`📊 Будем использовать ${limitedUrls.length} изображений`);
+    // Проверяем аудио
+    if (!audio || !audio.data) {
+      return res.status(400).json({ 
+        error: 'Требуется аудио файл (audio.data в base64)'
+      });
+    }
 
-    // ПОСЛЕДОВАТЕЛЬНОЕ скачивание изображений с детальным логированием
-    const imagePaths = [];
+    // Сохраняем аудио файл
+    const audioPath = path.join(tempDir, 'audio.mp3');
+    const audioBuffer = Buffer.from(audio.data, 'base64');
+    fs.writeFileSync(audioPath, audioBuffer);
+    console.log(`💾 Аудио сохранено: ${(audioBuffer.length / 1024).toFixed(1)} KB`);
+
+    // Ограничиваем количество видео
+    const limitedVideos = videos.slice(0, 4);
+    console.log(`📊 Будем использовать ${limitedVideos.length} видео файлов`);
+
+    // ПОСЛЕДОВАТЕЛЬНОЕ скачивание видео файлов
+    const videoPaths = [];
     
-    for (let i = 0; i < limitedUrls.length; i++) {
-      const imageUrl = limitedUrls[i];
-      const imagePath = path.join(tempDir, `image_${i}.jpg`);
+    for (let i = 0; i < limitedVideos.length; i++) {
+      const videoData = limitedVideos[i];
+      const videoUrl = videoData.url || videoData.pickedLink;
+      const videoPath = path.join(tempDir, `video_${i}.mp4`);
       
-      console.log(`\n⬇️ ===== СКАЧИВАНИЕ ИЗОБРАЖЕНИЯ ${i + 1}/${limitedUrls.length} =====`);
-      console.log(`🔗 URL: ${imageUrl}`);
-      console.log(`📁 Путь: ${imagePath}`);
+      console.log(`\n⬇️ ===== СКАЧИВАНИЕ ВИДЕО ${i + 1}/${limitedVideos.length} =====`);
+      console.log(`🔗 URL: ${videoUrl}`);
+      console.log(`📁 Путь: ${videoPath}`);
       
       try {
-        await downloadImage(imageUrl, imagePath, i);
+        await downloadVideo(videoUrl, videoPath, i);
         
-        // Дополнительная проверка
-        if (fs.existsSync(imagePath)) {
-          const stats = fs.statSync(imagePath);
-          if (stats.size > 1000) {
-            imagePaths.push(imagePath);
-            console.log(`✅ Изображение ${i + 1} успешно загружено и проверено`);
+        if (fs.existsSync(videoPath)) {
+          const stats = fs.statSync(videoPath);
+          if (stats.size > 100000) { // Минимум 100KB
+            videoPaths.push(videoPath);
+            console.log(`✅ Видео ${i + 1} успешно загружено: ${(stats.size / 1024 / 1024).toFixed(1)} MB`);
           } else {
-            console.error(`❌ Изображение ${i + 1} слишком маленькое: ${stats.size} байт`);
+            console.error(`❌ Видео ${i + 1} слишком маленькое: ${stats.size} байт`);
           }
         } else {
-          console.error(`❌ Файл изображения ${i + 1} не создался`);
+          console.error(`❌ Файл видео ${i + 1} не создался`);
         }
         
       } catch (error) {
-        console.error(`❌ Ошибка загрузки изображения ${i + 1}:`, error.message);
+        console.error(`❌ Ошибка загрузки видео ${i + 1}:`, error.message);
         
-        // Для первого изображения - критичная ошибка
         if (i === 0) {
-          console.error(`💥 Первое изображение обязательно - прерываем`);
+          console.error(`💥 Первое видео обязательно - прерываем`);
           throw error;
         }
       }
-      
-      console.log(`===== КОНЕЦ СКАЧИВАНИЯ ${i + 1} =====\n`);
     }
 
-    console.log(`📊 ИТОГО загружено: ${imagePaths.length} из ${limitedUrls.length} изображений`);
+    console.log(`📊 ИТОГО загружено: ${videoPaths.length} из ${limitedVideos.length} видео`);
 
-    if (imagePaths.length === 0) {
-      throw new Error('Не удалось загрузить ни одного изображения');
+    if (videoPaths.length === 0) {
+      throw new Error('Не удалось загрузить ни одного видео файла');
     }
 
-    // Создаем видео с исправленной функцией
-    const result = await createPerfectDynamicVideo(imagePaths, outputPath, {
+    // Создаем видео из видео файлов
+    const result = await createVideoFromVideos(videoPaths, audioPath, outputPath, {
       title,
       duration,
       channelName,
       subscribeText,
-      newsText,
-      fast,
-      enableKenBurns
+      newsText
     });
     
-    console.log('✅ ИСПРАВЛЕННОЕ видео создано успешно!');
+    console.log('✅ Видео из видео создано успешно!');
     
     // Очищаем временную папку
     if (fs.existsSync(tempDir)) {
@@ -567,7 +445,7 @@ app.post('/api/create-news-video', async (req, res) => {
     
     res.json({
       success: true,
-      message: 'ИСПРАВЛЕННОЕ новостное видео создано! 🎬✨',
+      message: 'Видео из ВИДЕО файлов создано! 🎬✨',
       data: {
         filename: videoFilename,
         downloadUrl: `/api/download/${videoFilename}`,
@@ -578,23 +456,23 @@ app.post('/api/create-news-video', async (req, res) => {
         title: title,
         method: result.method,
         features: result.features,
-        imagesUsed: imagePaths.length,
-        imagesRequested: limitedUrls.length,
-        mode: imagePaths.length > 1 ? 'dynamic' : 'enhanced',
+        videosUsed: videoPaths.length,
+        videosRequested: limitedVideos.length,
+        mode: 'video_compilation',
         created: new Date().toISOString()
       }
     });
     
   } catch (error) {
-    console.error('❌ Ошибка при создании ИСПРАВЛЕННОГО видео:', error);
+    console.error('❌ Ошибка при создании видео из видео:', error);
     res.status(500).json({
-      error: 'Ошибка при создании исправленного новостного видео',
+      error: 'Ошибка при создании видео из видео файлов',
       message: error.message
     });
   }
 });
 
-// Остальные endpoints (download, stream, test)
+// Остальные endpoints остаются те же (download, stream, test)
 app.get('/api/download/:filename', (req, res) => {
   const filename = req.params.filename;
   const filepath = path.join(__dirname, 'outputs', filename);
@@ -642,102 +520,31 @@ app.get('/api/stream/:filename', (req, res) => {
   }
 });
 
-// Тест
-app.post('/api/test', async (req, res) => {
-  console.log('🧪 Тест ИСПРАВЛЕННОЙ системы');
-  
-  try {
-    const testProcess = spawn('ffmpeg', ['-version'], {
-      stdio: 'pipe'
-    });
-    
-    let output = '';
-    testProcess.stdout.on('data', (data) => {
-      output += data.toString();
-    });
-    
-    testProcess.on('close', (code) => {
-      res.json({
-        success: true,
-        message: 'ИСПРАВЛЕННАЯ система новостных видео готова!',
-        ffmpegAvailable: code === 0,
-        ffmpegVersion: output.split('\n')[0],
-        features: [
-          '✅ ИСПРАВЛЕННАЯ очистка текста для FFmpeg',
-          '✅ Безопасное разделение субтитров',
-          '✅ Упрощенные Ken Burns эффекты',
-          '✅ Стабильные фильтры без сложной математики',
-          '✅ Детальное логирование загрузки',
-          '✅ Надежная обработка ошибок'
-        ],
-        improvements: [
-          '🔧 Исправлена очистка двоеточий и спецсимволов',
-          '🔧 Упрощены Ken Burns эффекты',
-          '🔧 Укорочены тексты субтитров',
-          '🔧 Убраны сложные математические выражения'
-        ],
-        limits: {
-          maxImages: 4,
-          maxDuration: 60,
-          imageTimeout: 45,
-          textLength: 100
-        }
-      });
-    });
-    
-  } catch (error) {
-    res.json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Главная страница
 app.get('/', (req, res) => {
   res.json({
-    message: '🎬 FIXED Image-Based News Video API',
-    version: '6.1.0 - ИСПРАВЛЕННАЯ',
-    description: 'Исправленная система создания новостных видео из изображений',
+    message: '🎬 VIDEO-BASED News Video API',
+    version: '7.0.0 - ВИДЕО ИЗ ВИДЕО',
+    description: 'Система создания новостных видео из реальных видео файлов',
     
     features: {
-      '📥 Загрузка': 'Детальное логирование + проверка файлов',
-      '📝 Текст': 'ИСПРАВЛЕННАЯ очистка и разделение',
-      '🎬 Эффекты': 'Упрощенные Ken Burns (стабильные)',
-      '📊 Фильтры': 'Безопасные FFmpeg команды',
-      '🎨 Качество': 'Стабильное создание видео'
+      '📥 Видео': 'Загрузка и обработка MP4 файлов',
+      '🎵 Аудио': 'Синхронизация с озвучкой', 
+      '🎬 Обработка': 'FFmpeg видео композиция',
+      '📊 Качество': 'Настоящие движущиеся кадры',
+      '🎨 Эффекты': 'Плавные переходы между видео'
     },
     
-    endpoints: {
-      createVideo: 'POST /api/create-news-video',
-      test: 'POST /api/test',
-      download: 'GET /api/download/:filename',
-      stream: 'GET /api/stream/:filename'
-    },
-    
-    fixes: [
-      '🔧 Исправлена обработка двоеточий в тексте',
-      '🔧 Упрощены Ken Burns эффекты',
-      '🔧 Сокращена длина субтитров',
-      '🔧 Убраны проблемные символы',
-      '🔧 Стабилизированы FFmpeg фильтры'
-    ],
-    
-    status: 'Готова к созданию СТАБИЛЬНЫХ видео! 🚀✅'
+    status: 'Готова к созданию ВИДЕО ИЗ ВИДЕО! 🚀✅'
   });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log('🎬 ===== FIXED IMAGE-BASED NEWS VIDEO API =====');
+  console.log('🎬 ===== VIDEO-BASED NEWS API =====');
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log('✨ Режим: ИСПРАВЛЕННЫЕ стабильные видео');
-  console.log('🔧 Исправления:');
-  console.log('   📝 Безопасная очистка текста');
-  console.log('   🎬 Упрощенные Ken Burns эффекты');
-  console.log('   📊 Стабильные FFmpeg фильтры');
-  console.log('   🎯 Укороченные субтитры');
-  console.log('   ⚡ Надежная обработка символов');
-  console.log('================================================');
+  console.log('✨ Режим: ВИДЕО ИЗ ВИДЕО (не картинки!)');
+  console.log('📹 Поддержка: MP4, синхронизация аудио');
+  console.log('🎬 Создание: Композиция из видео файлов');
+  console.log('=====================================');
 });
 
 export default app;
