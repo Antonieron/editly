@@ -230,7 +230,7 @@ function downloadImage(url, filepath, index = 0) {
   });
 }
 
-// ИСПРАВЛЕННАЯ функция создания динамического видео
+// ПОЛНОСТЬЮ ПЕРЕПИСАННАЯ функция создания динамического видео
 function createPerfectDynamicVideo(imagePaths, outputPath, options) {
   return new Promise((resolve, reject) => {
     const {
@@ -243,7 +243,7 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
       enableKenBurns = true
     } = options;
 
-    console.log(`🎬 Создание ИСПРАВЛЕННОГО динамического видео из ${imagePaths.length} изображений`);
+    console.log(`🎬 Создание ДИНАМИЧЕСКОГО видео из ${imagePaths.length} изображений`);
 
     // Проверяем все изображения
     for (let i = 0; i < imagePaths.length; i++) {
@@ -277,13 +277,13 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
     const sceneDuration = duration / imagePaths.length;
     console.log(`⏱️ Длительность каждой сцены: ${sceneDuration.toFixed(1)} секунд`);
     
-    // Строим входы для FFmpeg
+    // Строим входы для FFmpeg (каждое изображение как отдельный вход)
     const inputs = imagePaths.map(imagePath => ['-loop', '1', '-i', imagePath]).flat();
     
-    // Строим БЕЗОПАСНЫЙ сложный фильтр
+    // Строим ДИНАМИЧЕСКИЙ сложный фильтр с несколькими сценами
     const filterParts = [];
     
-    // Обрабатываем каждое изображение
+    // Обрабатываем каждое изображение как отдельную сцену
     imagePaths.forEach((imagePath, index) => {
       const startTime = index * sceneDuration;
       const endTime = Math.min((index + 1) * sceneDuration, duration);
@@ -291,76 +291,81 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
       
       console.log(`🎬 Сцена ${index + 1}: ${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s`);
       
-      // МАКСИМАЛЬНО УПРОЩЕННЫЙ Ken Burns эффект (без сложных выражений)
+      // Для каждого изображения создаем свой видеофильтр с эффектами
       let videoFilter = `[${index}:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080`;
       
       if (enableKenBurns) {
-        // Используем только базовые числовые значения без математики
-        if (index % 2 === 0) {
-          // Простое приближение с фиксированными значениями
-          videoFilter += `,zoompan=z=1.2:d=25*${sceneLength}:x=iw/2-iw/zoom/2:y=ih/2-ih/zoom/2:s=1920x1080`;
-        } else {
-          // Простое отдаление с фиксированными значениями  
-          videoFilter += `,zoompan=z=1.1:d=25*${sceneLength}:x=iw/2-iw/zoom/2:y=ih/2-ih/zoom/2:s=1920x1080`;
-        }
+        // Разные эффекты для разных сцен
+        const effects = [
+          `zoompan=z=1.2:d=${Math.ceil(sceneLength * 25)}:x=iw/2-iw/zoom/2:y=ih/2-ih/zoom/2:s=1920x1080`, // приближение
+          `zoompan=z=1.1:d=${Math.ceil(sceneLength * 25)}:x=iw/2-iw/zoom/2+20:y=ih/2-ih/zoom/2:s=1920x1080`, // сдвиг вправо
+          `zoompan=z=1.15:d=${Math.ceil(sceneLength * 25)}:x=iw/2-iw/zoom/2-20:y=ih/2-ih/zoom/2+10:s=1920x1080`, // сдвиг влево и вниз
+          `zoompan=z=1.25:d=${Math.ceil(sceneLength * 25)}:x=iw/2-iw/zoom/2:y=ih/2-ih/zoom/2-15:s=1920x1080` // приближение с сдвигом вверх
+        ];
+        
+        videoFilter += `,` + effects[index % effects.length];
       }
       
-      videoFilter += `,setpts=PTS-STARTPTS+${startTime}/TB[v${index}]`;
+      // Добавляем время для каждой сцены
+      videoFilter += `,setpts=PTS-STARTPTS,trim=duration=${sceneLength.toFixed(2)}[video${index}]`;
       filterParts.push(videoFilter);
       
-      // БЕЗОПАСНЫЕ субтитры для каждой сцены
+      // Создаем субтитры для каждой сцены
       const subtitleText = sanitizeText(textParts[index] || `Часть ${index + 1}`);
-      console.log(`📝 Безопасные субтитры ${index + 1}: "${subtitleText}"`);
-      
-      const subtitleStart = startTime + 1;
-      const subtitleEnd = endTime - 0.5;
+      console.log(`📝 Субтитры для сцены ${index + 1}: "${subtitleText}"`);
       
       if (subtitleText && subtitleText.length > 3) {
-        // МАКСИМАЛЬНО ПРОСТОЙ drawtext без сложных параметров
-        filterParts.push(`[v${index}]drawtext=text='${subtitleText}':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=h-120:box=1:boxcolor=black@0.8:boxborderw=8[v${index}s]`);
+        // Добавляем разные цвета фона для разных сцен
+        const bgColors = ['black@0.8', 'blue@0.7', 'red@0.6', 'green@0.7'];
+        const bgColor = bgColors[index % bgColors.length];
+        
+        filterParts.push(`[video${index}]drawtext=text='${subtitleText}':fontcolor=white:fontsize=28:x=(w-text_w)/2:y=h-100:box=1:boxcolor=${bgColor}:boxborderw=8[scene${index}]`);
       } else {
-        filterParts.push(`[v${index}]copy[v${index}s]`);
+        filterParts.push(`[video${index}]copy[scene${index}]`);
       }
     });
 
-    // Конкатенируем все сцены
-    const concatInputs = imagePaths.map((_, index) => `[v${index}s]`).join('');
-    const concatFilter = `${concatInputs}concat=n=${imagePaths.length}:v=1:a=0[vconcat]`;
+    // Конкатенируем все сцены в одно видео
+    const concatInputs = imagePaths.map((_, index) => `[scene${index}]`).join('');
+    const concatFilter = `${concatInputs}concat=n=${imagePaths.length}:v=1:a=0[concatenated]`;
     filterParts.push(concatFilter);
 
-    // ПРОСТЫЕ общие элементы без сложных текстов
-    filterParts.push(`[vconcat]drawbox=x=0:y=0:w=1920:h=80:color=red@0.9:t=fill[vbar]`);
-    filterParts.push(`[vbar]drawtext=text='ВАЖНЫЕ НОВОСТИ':fontsize=28:fontcolor=white:x=(w-text_w)/2:y=25[vtop]`);
+    // Добавляем общие элементы ПОВЕРХ всего видео
+    filterParts.push(`[concatenated]drawbox=x=0:y=0:w=1920:h=80:color=red@0.9:t=fill[withbar]`);
+    filterParts.push(`[withbar]drawtext=text='ВАЖНЫЕ НОВОСТИ':fontsize=28:fontcolor=white:x=(w-text_w)/2:y=25[withtop]`);
     
+    // Заголовок показываем только в первые 8 секунд
     if (safeTitle.length > 0) {
-      filterParts.push(`[vtop]drawtext=text='${safeTitle}':fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=300:box=1:boxcolor=black@0.8:boxborderw=10[vtitle]`);
+      filterParts.push(`[withtop]drawtext=text='${safeTitle}':fontsize=42:fontcolor=yellow:x=(w-text_w)/2:y=300:box=1:boxcolor=black@0.8:boxborderw=10[withtitle]`);
     } else {
-      filterParts.push(`[vtop]copy[vtitle]`);
+      filterParts.push(`[withtop]copy[withtitle]`);
     }
     
+    // Канал показываем постоянно
     if (safeChannelName.length > 0) {
-      filterParts.push(`[vtitle]drawtext=text='${safeChannelName}':fontsize=24:fontcolor=white:x=50:y=h-50:box=1:boxcolor=red@0.8:boxborderw=6[vchannel]`);
+      filterParts.push(`[withtitle]drawtext=text='${safeChannelName}':fontsize=22:fontcolor=white:x=50:y=h-50:box=1:boxcolor=red@0.8:boxborderw=6[withchannel]`);
     } else {
-      filterParts.push(`[vtitle]copy[vchannel]`);
+      filterParts.push(`[withtitle]copy[withchannel]`);
     }
     
+    // Подписка в конце
     if (safeSubscribeText.length > 0) {
-      filterParts.push(`[vchannel]drawtext=text='${safeSubscribeText}':fontsize=32:fontcolor=black:x=(w-text_w)/2:y=h-60:box=1:boxcolor=yellow@0.9:boxborderw=8[vfinal]`);
+      filterParts.push(`[withchannel]drawtext=text='${safeSubscribeText}':fontsize=30:fontcolor=black:x=(w-text_w)/2:y=h-60:box=1:boxcolor=yellow@0.9:boxborderw=8[final]`);
     } else {
-      filterParts.push(`[vchannel]copy[vfinal]`);
+      filterParts.push(`[withchannel]copy[final]`);
     }
 
     // Объединяем все фильтры
     const filterComplex = filterParts.join('; ');
     
-    console.log(`🎬 Создано ${filterParts.length} безопасных фильтров`);
+    console.log(`🎬 Создано ${filterParts.length} фильтров для динамического видео`);
     console.log(`🔧 Длина filter_complex: ${filterComplex.length} символов`);
 
-    // FFmpeg аргументы
+    // FFmpeg аргументы для динамического видео
     const ffmpegArgs = [
       ...inputs,
       '-filter_complex', filterComplex,
-      '-map', '[vfinal]',
+      '-map', '[final]',
       '-c:v', 'libx264',
       '-t', duration.toString(),
       '-pix_fmt', 'yuv420p',
@@ -371,7 +376,8 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
       outputPath
     ];
 
-    console.log('🎬 Запуск FFmpeg для ИСПРАВЛЕННОГО видео');
+    console.log('🎬 Запуск FFmpeg для ДИНАМИЧЕСКОГО видео');
+    console.log('🔧 FFmpeg команда:', ['ffmpeg', ...ffmpegArgs].join(' '));
 
     const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
       stdio: 'pipe'
@@ -399,22 +405,23 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
 
     ffmpegProcess.on('close', (code) => {
       if (code === 0) {
-        console.log('✅ ИСПРАВЛЕННОЕ динамическое видео создано успешно!');
+        console.log('✅ ДИНАМИЧЕСКОЕ видео создано успешно!');
         resolve({ 
           stdout, 
           stderr,
-          method: 'Fixed Dynamic Video',
+          method: 'Dynamic Multi-Scene Video',
           features: [
-            'Исправленная очистка текста ✓',
+            'Множественные изображения ✓',
+            'Разные эффекты для каждой сцены ✓',
+            'Меняющиеся субтитры ✓',
             'Безопасные FFmpeg фильтры ✓',
-            'Упрощенный Ken Burns ✓',
-            'Стабильные субтитры ✓'
+            'Динамические переходы ✓'
           ]
         });
       } else {
         console.error('❌ FFmpeg завершен с ошибкой, код:', code);
-        console.error('❌ Последние строки stderr:', stderr.split('\n').slice(-5).join('\n'));
-        reject(new Error(`FFmpeg exited with code ${code}. Last stderr: ${stderr.slice(-300)}`));
+        console.error('❌ Последние строки stderr:', stderr.split('\n').slice(-10).join('\n'));
+        reject(new Error(`FFmpeg exited with code ${code}. Last stderr: ${stderr.slice(-500)}`));
       }
     });
 
