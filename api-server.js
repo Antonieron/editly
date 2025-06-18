@@ -57,9 +57,10 @@ function downloadVideo(url, filepath, index = 0) {
     const options = {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'video/mp4,video/*,*/*;q=0.8',
+        'Accept': '*/*', // Принимаем любой контент
         'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        'Referer': 'https://www.pexels.com/' // Важно для Pexels
       }
     };
     
@@ -84,16 +85,25 @@ function downloadVideo(url, filepath, index = 0) {
         return;
       }
       
-      // Проверяем тип контента
+      // Проверяем тип контента - ИСПРАВЛЕННАЯ логика для Pexels
       const contentType = response.headers['content-type'] || '';
-      console.log(`📁 [VIDEO ${index + 1}] Тип контента: ${contentType}`);
+      console.log(`📁 [VIDEO ${index + 1}] Тип контента: "${contentType}"`);
       
-      if (!contentType.includes('video/') && !contentType.includes('application/octet-stream')) {
+      // Pexels часто возвращает пустой content-type, проверяем по URL
+      const isPexelsVideo = url.includes('pexels.com') && url.includes('.mp4');
+      const isValidContentType = contentType.includes('video/') || 
+                                contentType.includes('application/octet-stream') || 
+                                contentType.includes('binary/octet-stream') ||
+                                contentType === '';
+      
+      if (!isValidContentType && !isPexelsVideo) {
         file.close();
         fs.unlink(tempPath, () => {});
         reject(new Error(`Not a video (${contentType}) for video ${index + 1}: ${url}`));
         return;
       }
+      
+      console.log(`✅ [VIDEO ${index + 1}] Content type validation passed (Pexels: ${isPexelsVideo})`);;
       
       console.log(`💾 [VIDEO ${index + 1}] Начинаем сохранение...`);
       response.pipe(file);
@@ -110,10 +120,10 @@ function downloadVideo(url, filepath, index = 0) {
         file.close();
         console.log(`✅ [VIDEO ${index + 1}] Загрузка завершена: ${(downloadedBytes / 1024 / 1024).toFixed(1)} MB`);
         
-        // Проверяем размер файла (видео должно быть больше 100KB)
-        if (downloadedBytes < 100000) {
+        // Проверяем размер файла (видео должно быть больше 50KB для Pexels)
+        if (downloadedBytes < 50000) {
           fs.unlink(tempPath, () => {});
-          reject(new Error(`Video file too small (${downloadedBytes} bytes) for video ${index + 1}`));
+          reject(new Error(`Video file too small (${downloadedBytes} bytes) for video ${index + 1}. Possible download issue.`));
           return;
         }
         
@@ -159,10 +169,10 @@ function downloadVideo(url, filepath, index = 0) {
 function createVideoFromVideos(videoPaths, audioPath, outputPath, options) {
   return new Promise((resolve, reject) => {
     const {
-      title = 'Важная новость дня',
+      title = '',
       duration = 60,
-      channelName = 'AI Новости',
-      subscribeText = 'ПОДПИШИСЬ НА КАНАЛ',
+      channelName = '',
+      subscribeText = '',
       newsText = ''
     } = options;
 
@@ -223,25 +233,22 @@ function createVideoFromVideos(videoPaths, audioPath, outputPath, options) {
     const concatFilter = `${concatInputs}concat=n=${videoPaths.length}:v=1:a=0[video_base]`;
     filterParts.push(concatFilter);
 
-    // Добавляем текстовые элементы
-    filterParts.push(`[video_base]drawbox=x=0:y=0:w=1920:h=80:color=red@0.9:t=fill[withbar]`);
-    filterParts.push(`[withbar]drawtext=text='ВАЖНЫЕ НОВОСТИ':fontsize=28:fontcolor=white:x=(w-text_w)/2:y=25[withtop]`);
-    
-    // Заголовок
+    // Добавляем текстовые элементы только если они есть
     if (safeTitle.length > 0) {
-      filterParts.push(`[withtop]drawtext=text='${safeTitle}':fontsize=42:fontcolor=yellow:x=(w-text_w)/2:y=300:box=1:boxcolor=black@0.8:boxborderw=10:enable='between(t,0,8)'[withtitle]`);
+      filterParts.push(`[video_base]drawbox=x=0:y=0:w=1920:h=80:color=red@0.9:t=fill[withbar]`);
+      filterParts.push(`[withbar]drawtext=text='${safeTitle}':fontsize=42:fontcolor=yellow:x=(w-text_w)/2:y=300:box=1:boxcolor=black@0.8:boxborderw=10:enable='between(t,0,8)'[withtitle]`);
     } else {
-      filterParts.push(`[withtop]copy[withtitle]`);
+      filterParts.push(`[video_base]copy[withtitle]`);
     }
     
-    // Канал
+    // Канал только если указан
     if (safeChannelName.length > 0) {
       filterParts.push(`[withtitle]drawtext=text='${safeChannelName}':fontsize=22:fontcolor=white:x=50:y=h-50:box=1:boxcolor=red@0.8:boxborderw=6[withchannel]`);
     } else {
       filterParts.push(`[withtitle]copy[withchannel]`);
     }
     
-    // Подписка
+    // Подписка только если указана
     if (safeSubscribeText.length > 0) {
       filterParts.push(`[withchannel]drawtext=text='${safeSubscribeText}':fontsize=30:fontcolor=black:x=(w-text_w)/2:y=h-60:box=1:boxcolor=yellow@0.9:boxborderw=8:enable='gte(t,${duration-10})'[final]`);
     } else {
@@ -331,10 +338,10 @@ app.post('/api/create-news-video', async (req, res) => {
   
   try {
     const {
-      title = 'Важная новость дня',
+      title = '',
       duration = 45,
-      channelName = 'AI Новости',
-      subscribeText = 'ПОДПИШИСЬ НА КАНАЛ!',
+      channelName = '',
+      subscribeText = '',
       newsText = '',
       videos = [], // ВИДЕО вместо изображений!
       audio
@@ -391,7 +398,7 @@ app.post('/api/create-news-video', async (req, res) => {
         
         if (fs.existsSync(videoPath)) {
           const stats = fs.statSync(videoPath);
-          if (stats.size > 100000) { // Минимум 100KB
+          if (stats.size > 50000) { // Минимум 50KB для Pexels
             videoPaths.push(videoPath);
             console.log(`✅ Видео ${i + 1} успешно загружено: ${(stats.size / 1024 / 1024).toFixed(1)} MB`);
           } else {
