@@ -1,23 +1,13 @@
 {
-  "name": "editly-api",
-  "version": "2.0.0",
-  "description": "Editly API for news video generation",
+  "name": "ffmpeg-video-api",
+  "version": "1.0.0",
   "type": "module",
   "main": "api-server.js",
   "scripts": {
-    "start": "node api-server.js",
-    "api": "node api-server.js",
-    "dev": "nodemon api-server.js"
+    "start": "node api-server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "editly": "^0.29.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "express": "4.18.2",
+    "cors": "2.8.5"
   }
 }
