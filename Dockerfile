@@ -24,8 +24,9 @@ WORKDIR /app
 # Копируем package.json и package-lock.json
 COPY package*.json ./
 
-# Устанавливаем зависимости
-RUN npm ci --production
+# Очищаем npm cache и устанавливаем зависимости
+RUN npm cache clean --force
+RUN npm install --production --no-optional || npm install --production --legacy-peer-deps
 
 # Копируем весь проект
 COPY . .
@@ -33,16 +34,17 @@ COPY . .
 # Создаем необходимые директории
 RUN mkdir -p uploads outputs temp examples
 
-# Устанавливаем права
-RUN chmod +x api-server.js
-
 # Переменные окружения
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV DISPLAY=:99
+ENV NPM_CONFIG_UNSAFE_PERM=true
 
 # Экспонируем порт
 EXPOSE 3000
 
-# Запуск с виртуальным дисплеем для headless режима
+# Проверяем что API файл существует
+RUN ls -la api-server.js || echo "api-server.js не найден!"
+
+# Запуск с виртуальным дисплеем
 CMD ["sh", "-c", "Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 & node api-server.js"]
