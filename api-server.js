@@ -165,162 +165,73 @@ function downloadVideo(url, filepath, index = 0) {
   });
 }
 
-// СОЗДАНИЕ ВИДЕО ИЗ ВИДЕО ФАЙЛОВ
-function createVideoFromVideos(videoPaths, audioPath, outputPath, options) {
+// МАКСИМАЛЬНО ПРОСТАЯ ФУНКЦИЯ - просто склеить видео + аудио
+function createUltraSimpleVideo(videoPaths, audioPath, outputPath, duration) {
   return new Promise((resolve, reject) => {
-    const {
-      title = '',
-      duration = 60,
-      channelName = '',
-      subscribeText = '',
-      newsText = ''
-    } = options;
+    console.log(`🎬 ПРОСТОЕ склеивание ${videoPaths.length} видео + аудио`);
 
-    console.log(`🎬 Создание видео из ${videoPaths.length} видео файлов`);
-
-    // Проверяем все видео файлы
+    // Проверяем файлы
     for (let i = 0; i < videoPaths.length; i++) {
       if (!fs.existsSync(videoPaths[i])) {
-        console.error(`❌ Видео ${i + 1} не найдено: ${videoPaths[i]}`);
         return reject(new Error(`Видео ${i + 1} не найдено`));
       }
-      
-      const stats = fs.statSync(videoPaths[i]);
-      console.log(`✅ Видео ${i + 1}: ${(stats.size / 1024 / 1024).toFixed(1)} MB`);
     }
 
-    // Проверяем аудио
     if (!fs.existsSync(audioPath)) {
-      console.error(`❌ Аудио файл не найден: ${audioPath}`);
       return reject(new Error('Аудио файл не найден'));
     }
 
-    // Безопасная очистка текстов
-    const safeTitle = sanitizeText(title);
-    const safeChannelName = sanitizeText(channelName);
-    const safeSubscribeText = sanitizeText(subscribeText);
+    // Создаем файл списка для простого concat
+    const concatFile = path.join(path.dirname(outputPath), 'simple_list.txt');
+    const concatContent = videoPaths.map(file => `file '${path.resolve(file)}'`).join('\n');
+    fs.writeFileSync(concatFile, concatContent);
+    
+    console.log('📝 Создан список файлов для склеивания');
+    console.log(concatContent);
 
-    console.log(`📝 Безопасные тексты:`);
-    console.log(`   Заголовок: "${safeTitle}"`);
-    console.log(`   Канал: "${safeChannelName}"`);
-    console.log(`   Подписка: "${safeSubscribeText}"`);
-
-    const videoDuration = duration / videoPaths.length;
-    console.log(`⏱️ Длительность каждого видео: ${videoDuration.toFixed(1)} секунд`);
-    
-    // Строим входы для FFmpeg
-    const inputs = [];
-    
-    // Добавляем все видео как входы
-    videoPaths.forEach(videoPath => {
-      inputs.push('-i', videoPath);
-    });
-    
-    // Добавляем аудио как вход
-    inputs.push('-i', audioPath);
-    
-    // Строим фильтр для объединения видео
-    const filterParts = [];
-    
-    // Обрабатываем каждое видео
-    videoPaths.forEach((videoPath, index) => {
-      // Масштабируем, обрезаем и устанавливаем длительность для каждого видео
-      filterParts.push(`[${index}:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setpts=PTS-STARTPTS,trim=duration=${videoDuration.toFixed(2)}[v${index}]`);
-    });
-
-    // Конкатенируем все видео
-    const concatInputs = videoPaths.map((_, index) => `[v${index}]`).join('');
-    const concatFilter = `${concatInputs}concat=n=${videoPaths.length}:v=1:a=0[video_base]`;
-    filterParts.push(concatFilter);
-
-    // Добавляем текстовые элементы только если они есть
-    if (safeTitle.length > 0) {
-      filterParts.push(`[video_base]drawbox=x=0:y=0:w=1920:h=80:color=red@0.9:t=fill[withbar]`);
-      filterParts.push(`[withbar]drawtext=text='${safeTitle}':fontsize=42:fontcolor=yellow:x=(w-text_w)/2:y=300:box=1:boxcolor=black@0.8:boxborderw=10:enable='between(t,0,8)'[withtitle]`);
-    } else {
-      filterParts.push(`[video_base]copy[withtitle]`);
-    }
-    
-    // Канал только если указан
-    if (safeChannelName.length > 0) {
-      filterParts.push(`[withtitle]drawtext=text='${safeChannelName}':fontsize=22:fontcolor=white:x=50:y=h-50:box=1:boxcolor=red@0.8:boxborderw=6[withchannel]`);
-    } else {
-      filterParts.push(`[withtitle]copy[withchannel]`);
-    }
-    
-    // Подписка только если указана
-    if (safeSubscribeText.length > 0) {
-      filterParts.push(`[withchannel]drawtext=text='${safeSubscribeText}':fontsize=30:fontcolor=black:x=(w-text_w)/2:y=h-60:box=1:boxcolor=yellow@0.9:boxborderw=8:enable='gte(t,${duration-10})'[final]`);
-    } else {
-      filterParts.push(`[withchannel]copy[final]`);
-    }
-
-    // Объединяем все фильтры
-    const filterComplex = filterParts.join('; ');
-    
-    console.log(`🎬 Создано ${filterParts.length} фильтров для видео из видео`);
-
-    // FFmpeg аргументы
+    // ПРОСТЕЙШАЯ команда FFmpeg - склеить видео + добавить аудио
     const ffmpegArgs = [
-      ...inputs,
-      '-filter_complex', filterComplex,
-      '-map', '[final]',
-      '-map', `${videoPaths.length}:a`, // Аудио из последнего входа
-      '-c:v', 'libx264',
-      '-c:a', 'aac',
+      '-f', 'concat',
+      '-safe', '0', 
+      '-i', concatFile,
+      '-i', audioPath,
+      '-c:v', 'copy',  // Копируем видео БЕЗ обработки
+      '-c:a', 'aac',   // Перекодируем только аудио
       '-t', duration.toString(),
-      '-pix_fmt', 'yuv420p',
-      '-r', '30',
-      '-preset', 'fast',
-      '-crf', '20',
       '-y',
       outputPath
     ];
 
-    console.log('🎬 Запуск FFmpeg для создания видео из видео');
+    console.log('🚀 Запуск простейшего FFmpeg');
+    console.log('Команда:', ['ffmpeg', ...ffmpegArgs].join(' '));
 
-    const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
-      stdio: 'pipe'
-    });
+    const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, { stdio: 'pipe' });
 
-    let stdout = '';
     let stderr = '';
-
-    ffmpegProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
     ffmpegProcess.stderr.on('data', (data) => {
       stderr += data.toString();
       const line = data.toString().trim();
-      if (line.includes('frame=') || line.includes('time=')) {
-        const timeMatch = line.match(/time=(\d{2}):(\d{2}):(\d{2})/);
-        if (timeMatch) {
-          const currentSeconds = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]);
-          const progress = ((currentSeconds / duration) * 100).toFixed(1);
-          console.log(`⚡ Прогресс: ${progress}%`);
-        }
+      if (line.includes('time=')) {
+        console.log('⚡', line.match(/time=[\d:.]*/)?.[0] || 'processing...');
       }
     });
 
     ffmpegProcess.on('close', (code) => {
+      // Удаляем временный файл списка
+      if (fs.existsSync(concatFile)) {
+        fs.unlinkSync(concatFile);
+      }
+
       if (code === 0) {
-        console.log('✅ Видео из видео создано успешно!');
+        console.log('✅ ПРОСТОЕ видео создано!');
         resolve({ 
-          stdout, 
-          stderr,
-          method: 'Video Compilation from Source Videos',
-          features: [
-            'Настоящие видео файлы ✓',
-            'Плавные переходы ✓', 
-            'Синхронизированное аудио ✓',
-            'Динамичный контент ✓',
-            'HD качество ✓'
-          ]
+          method: 'Ultra Simple Concat + Audio',
+          features: ['Простое склеивание ✓', 'Без обработки ✓', 'Максимальная скорость ✓']
         });
       } else {
-        console.error('❌ FFmpeg завершен с ошибкой, код:', code);
-        reject(new Error(`FFmpeg exited with code ${code}. Last stderr: ${stderr.slice(-500)}`));
+        console.error('❌ FFmpeg ошибка, код:', code);
+        console.error('Последние строки stderr:', stderr.split('\n').slice(-5).join('\n'));
+        reject(new Error(`Simple FFmpeg failed with code ${code}`));
       }
     });
 
@@ -424,14 +335,8 @@ app.post('/api/create-news-video', async (req, res) => {
       throw new Error('Не удалось загрузить ни одного видео файла');
     }
 
-    // Создаем видео из видео файлов
-    const result = await createVideoFromVideos(videoPaths, audioPath, outputPath, {
-      title,
-      duration,
-      channelName,
-      subscribeText,
-      newsText
-    });
+    // ПРОСТЕЙШЕЕ создание - просто склеить видео + аудио
+    const result = await createUltraSimpleVideo(videoPaths, audioPath, outputPath, duration);
     
     console.log('✅ Видео из видео создано успешно!');
     
