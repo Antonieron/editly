@@ -1,68 +1,48 @@
-FROM node:lts-bookworm AS build
+# Dockerfile для Editly на Railway
+FROM node:18-bullseye
 
-# Install dependencies for building canvas/gl
-RUN apt-get update -y
-
-RUN apt-get -y install \
+# Установка системных зависимостей
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    python3 \
     build-essential \
     libcairo2-dev \
-    libgif-dev \
-    libgl1-mesa-dev \
-    libglew-dev \
-    libglu1-mesa-dev \
-    libjpeg-dev \
     libpango1.0-dev \
+    libjpeg-dev \
+    libgif-dev \
     librsvg2-dev \
     libxi-dev \
+    libglu1-mesa-dev \
+    libglew-dev \
     pkg-config \
-    python-is-python3
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
 
+# Рабочая директория
 WORKDIR /app
 
-# Install node dependencies
-COPY package.json ./
-RUN npm install --no-fund --no-audit
+# Копируем package.json и package-lock.json
+COPY package*.json ./
 
-# Add app source
+# Устанавливаем зависимости
+RUN npm ci --production
+
+# Копируем весь проект
 COPY . .
 
-# Build TypeScript
-RUN npm run build
+# Создаем необходимые директории
+RUN mkdir -p uploads outputs temp examples
 
-# Prune dev dependencies
-RUN npm prune --omit=dev
+# Устанавливаем права
+RUN chmod +x api-server.js
 
-# Purge build dependencies
-RUN apt-get --purge autoremove -y \
-    build-essential \
-    libcairo2-dev \
-    libgif-dev \
-    libgl1-mesa-dev \
-    libglew-dev \
-    libglu1-mesa-dev \
-    libjpeg-dev \
-    libpango1.0-dev \
-    librsvg2-dev \
-    libxi-dev \
-    pkg-config \
-    python-is-python3
+# Переменные окружения
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV DISPLAY=:99
 
-# Remove Apt cache
-RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/*
+# Экспонируем порт
+EXPOSE 3000
 
-# Final stage for app image
-FROM node:lts-bookworm
-
-# Install runtime dependencies
-RUN apt-get update -y \
-  && apt-get -y install ffmpeg dumb-init xvfb libcairo2 libpango1.0 libgif7 librsvg2-2 \
-  && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
-
-WORKDIR /app
-COPY --from=build /app /app
-
-# Ensure `editly` binary available in container
-RUN npm link
-
-ENTRYPOINT ["/usr/bin/dumb-init", "--", "xvfb-run", "--server-args", "-screen 0 1280x1024x24 -ac"]
-CMD [ "editly" ]
+# Запуск с виртуальным дисплеем для headless режима
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 & node api-server.js"]
