@@ -1,4 +1,4 @@
-// api-server.js (ИСПРАВЛЕННЫЙ - использует локальный editly)
+// api-server.js (АЛЬТЕРНАТИВА - без editly, только FFmpeg)
 import express from 'express';
 import { spawn } from 'child_process';
 import cors from 'cors';
@@ -55,53 +55,74 @@ function downloadImage(url, filepath) {
   });
 }
 
-// Функция создания видео через локальный editly
-function createVideoWithEditly(specPath, outputPath, options = {}) {
+// Создание видео через FFmpeg напрямую
+function createVideoWithFFmpeg(imagePath, outputPath, options) {
   return new Promise((resolve, reject) => {
-    const args = [
-      path.join(__dirname, 'node_modules/.bin/editly'),
-      specPath, 
-      '--out', 
+    const {
+      title = '🔥 Важная новость дня',
+      duration = 149,
+      channelName = '📺 НОВОСТНОЙ КАНАЛ',
+      subscribeText = '👆 ПОДПИШИСЬ НА КАНАЛ!',
+      fast = false
+    } = options;
+
+    // FFmpeg команда для создания видео из изображения
+    const ffmpegArgs = [
+      '-loop', '1',
+      '-i', imagePath,
+      '-f', 'lavfi',
+      '-i', 'color=black:1920x1080:d=' + duration,
+      '-filter_complex', `
+        [0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080[bg];
+        [bg]drawbox=x=0:y=0:w=1920:h=100:color=red@0.9:t=fill[bg1];
+        [bg1]drawtext=text='🔥 ВАЖНЫЕ НОВОСТИ • BREAKING NEWS • СРОЧНО 🔥':fontsize=28:fontcolor=white:x=(w-text_w)/2:y=25[bg2];
+        [bg2]drawtext=text='📅 ${new Date().toLocaleDateString('ru-RU')}':fontsize=24:fontcolor=yellow:x=50:y=150[bg3];
+        [bg3]drawtext=text='🔴 LIVE':fontsize=20:fontcolor=white:x=50:y=200:box=1:boxcolor=red@0.9:boxborderw=5[bg4];
+        [bg4]drawtext=text='${title}':fontsize=52:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.9:boxborderw=10[bg5];
+        [bg5]drawtext=text='${channelName}':fontsize=32:fontcolor=white:x=(w-text_w)/2:y=h-200:box=1:boxcolor=red@0.8:boxborderw=5[bg6];
+        [bg6]drawtext=text='${subscribeText}':fontsize=28:fontcolor=black:x=w-text_w-50:y=h-100:box=1:boxcolor=green@0.9:boxborderw=5[final]
+      `,
+      '-map', '[final]',
+      '-c:v', 'libx264',
+      '-t', duration.toString(),
+      '-pix_fmt', 'yuv420p',
+      '-r', fast ? '15' : '30',
+      '-preset', fast ? 'ultrafast' : 'medium',
+      '-y',
       outputPath
     ];
-    
-    if (options.fast) {
-      args.push('--fast');
-    }
-    
-    console.log('🎬 Запуск editly:', 'node', args.join(' '));
-    
-    const editlyProcess = spawn('node', args, {
-      cwd: __dirname,
-      stdio: 'pipe',
-      env: { ...process.env, DISPLAY: ':99' }
+
+    console.log('🎬 Запуск FFmpeg:', 'ffmpeg', ffmpegArgs.join(' '));
+
+    const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
+      stdio: 'pipe'
     });
-    
+
     let stdout = '';
     let stderr = '';
-    
-    editlyProcess.stdout.on('data', (data) => {
+
+    ffmpegProcess.stdout.on('data', (data) => {
       stdout += data.toString();
-      console.log('📹 Editly:', data.toString().trim());
+      console.log('📹 FFmpeg:', data.toString().trim());
     });
-    
-    editlyProcess.stderr.on('data', (data) => {
+
+    ffmpegProcess.stderr.on('data', (data) => {
       stderr += data.toString();
-      console.error('⚠️ Editly error:', data.toString().trim());
+      console.log('⚠️ FFmpeg:', data.toString().trim());
     });
-    
-    editlyProcess.on('close', (code) => {
+
+    ffmpegProcess.on('close', (code) => {
       if (code === 0) {
-        console.log('✅ Editly завершен успешно');
+        console.log('✅ FFmpeg завершен успешно');
         resolve({ stdout, stderr });
       } else {
-        console.error('❌ Editly завершен с ошибкой, код:', code);
-        reject(new Error(`Editly exited with code ${code}. Stderr: ${stderr}`));
+        console.error('❌ FFmpeg завершен с ошибкой, код:', code);
+        reject(new Error(`FFmpeg exited with code ${code}. Stderr: ${stderr}`));
       }
     });
-    
-    editlyProcess.on('error', (error) => {
-      console.error('💥 Ошибка запуска editly:', error);
+
+    ffmpegProcess.on('error', (error) => {
+      console.error('💥 Ошибка запуска FFmpeg:', error);
       reject(error);
     });
   });
@@ -118,142 +139,43 @@ app.post('/api/create-news-video', async (req, res) => {
       duration = 149,
       channelName = '📺 НОВОСТНОЙ КАНАЛ',
       subscribeText = '👆 ПОДПИШИСЬ НА КАНАЛ!',
-      newsText = 'Актуальные новости • Подписывайтесь на канал',
       fast = false
     } = req.body;
 
     if (!backgroundImage) {
       return res.status(400).json({ 
-        error: 'Требуется backgroundImage URL',
-        example: {
-          title: '🔥 Важная новость дня',
-          backgroundImage: 'https://images.unsplash.com/photo-xxxx',
-          duration: 149
-        }
+        error: 'Требуется backgroundImage URL'
       });
     }
 
     const timestamp = Date.now();
     const imageFilename = `bg_${timestamp}.jpg`;
     const videoFilename = `news_${timestamp}.mp4`;
-    const specFilename = `spec_${timestamp}.json5`;
     
     const imagePath = path.join(__dirname, 'temp', imageFilename);
     const outputPath = path.join(__dirname, 'outputs', videoFilename);
-    const specPath = path.join(__dirname, 'temp', specFilename);
 
     console.log('⬇️ Скачиваем фоновое изображение...');
     await downloadImage(backgroundImage, imagePath);
     console.log('✅ Изображение скачано');
 
-    console.log('📝 Создаем JSON5 спецификацию...');
+    console.log('🎥 Создаем видео через FFmpeg...');
     
-    // Создаем JSON5 спецификацию для editly CLI
-    const editSpec = {
-      outPath: outputPath,
-      width: 1920,
-      height: 1080,
-      fps: 30,
-      fast: fast,
-      
-      clips: [{
-        duration: duration,
-        layers: [
-          // Фоновое изображение
-          {
-            type: 'image',
-            path: imagePath,
-            resizeMode: 'cover'
-          },
-          
-          // Темная накладка
-          {
-            type: 'fill-color',
-            color: 'rgba(0,0,0,0.4)'
-          },
-          
-          // Breaking News баннер
-          {
-            type: 'title',
-            text: '🔥 ВАЖНЫЕ НОВОСТИ • BREAKING NEWS • СРОЧНО 🔥',
-            fontSize: 28,
-            textColor: 'white',
-            backgroundColor: 'rgba(255,0,0,0.9)',
-            position: { x: 0.5, y: 0.05, originX: 'center', originY: 'top' }
-          },
-          
-          // Дата
-          {
-            type: 'title',
-            text: '📅 ' + new Date().toLocaleDateString('ru-RU'),
-            fontSize: 24,
-            textColor: '#ffdf00',
-            backgroundColor: 'rgba(0,0,0,0.8)',
-            position: { x: 0.05, y: 0.15, originX: 'left', originY: 'top' }
-          },
-          
-          // LIVE индикатор
-          {
-            type: 'title',
-            text: '🔴 LIVE',
-            fontSize: 20,
-            textColor: 'white',
-            backgroundColor: 'rgba(255,0,0,0.9)',
-            position: { x: 0.05, y: 0.25, originX: 'left', originY: 'top' }
-          },
-          
-          // Главный заголовок
-          {
-            type: 'title',
-            text: title,
-            fontSize: 52,
-            textColor: 'white',
-            backgroundColor: 'rgba(0,0,0,0.9)',
-            position: { x: 0.5, y: 0.5, originX: 'center', originY: 'center' }
-          },
-          
-          // Название канала
-          {
-            type: 'title',
-            text: channelName,
-            fontSize: 32,
-            textColor: 'white',
-            backgroundColor: 'rgba(255,0,0,0.8)',
-            position: { x: 0.5, y: 0.85, originX: 'center', originY: 'center' }
-          },
-          
-          // Призыв к подписке
-          {
-            type: 'title',
-            text: subscribeText,
-            fontSize: 28,
-            textColor: 'black',
-            backgroundColor: 'rgba(0,255,0,0.9)',
-            position: { x: 0.95, y: 0.95, originX: 'right', originY: 'bottom' }
-          }
-        ]
-      }]
-    };
-
-    // Сохраняем спецификацию в файл
-    fs.writeFileSync(specPath, JSON.stringify(editSpec, null, 2));
-    console.log('📄 Спецификация сохранена:', specPath);
-
-    console.log('🎥 Запускаем editly для создания видео...');
-    console.log(`⏱️ Длительность: ${duration} секунд`);
-    
-    // Создаем видео через локальный editly
-    await createVideoWithEditly(specPath, outputPath, { fast });
+    // Создаем видео через FFmpeg
+    await createVideoWithFFmpeg(imagePath, outputPath, {
+      title,
+      duration,
+      channelName,
+      subscribeText,
+      fast
+    });
     
     console.log('✅ Видео создано успешно!');
     
-    // Удаляем временные файлы
-    [imagePath, specPath].forEach(file => {
-      if (fs.existsSync(file)) {
-        fs.unlinkSync(file);
-      }
-    });
-    console.log('🧹 Временные файлы удалены');
+    // Удаляем временное изображение
+    if (fs.existsSync(imagePath)) {
+      fs.unlinkSync(imagePath);
+    }
     
     // Проверяем что видео создано
     if (!fs.existsSync(outputPath)) {
@@ -272,12 +194,11 @@ app.post('/api/create-news-video', async (req, res) => {
         filename: videoFilename,
         downloadUrl: `/api/download/${videoFilename}`,
         streamUrl: `/api/stream/${videoFilename}`,
-        previewUrl: `/api/preview/${videoFilename}`,
         size: `${fileSizeInMB} MB`,
         duration: duration,
         resolution: '1920x1080',
         title: title,
-        channelName: channelName,
+        method: 'FFmpeg (без editly)',
         created: new Date().toISOString()
       }
     });
@@ -286,45 +207,44 @@ app.post('/api/create-news-video', async (req, res) => {
     console.error('❌ Ошибка при создании видео:', error);
     res.status(500).json({
       error: 'Ошибка при создании новостного видео',
-      message: error.message,
-      details: error.stack
+      message: error.message
     });
   }
 });
 
-// Простой тест эндпоинт
+// Тест FFmpeg
 app.post('/api/test', async (req, res) => {
-  console.log('🧪 Тестовый запрос');
+  console.log('🧪 Тест FFmpeg');
   
   try {
-    // Проверяем что editly доступен локально
-    const editlyPath = path.join(__dirname, 'node_modules/.bin/editly');
-    const editlyExists = fs.existsSync(editlyPath);
+    const testProcess = spawn('ffmpeg', ['-version'], {
+      stdio: 'pipe'
+    });
     
-    res.json({
-      success: true,
-      message: 'API сервер работает!',
-      editlyPath: editlyPath,
-      editlyExists: editlyExists,
-      nodeModulesExists: fs.existsSync(path.join(__dirname, 'node_modules')),
-      environment: {
-        nodeVersion: process.version,
-        platform: process.platform,
-        cwd: process.cwd(),
-        __dirname: __dirname
-      }
+    let output = '';
+    testProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    testProcess.on('close', (code) => {
+      res.json({
+        success: true,
+        message: 'FFmpeg API работает!',
+        ffmpegAvailable: code === 0,
+        ffmpegVersion: output.split('\n')[0],
+        method: 'Прямой FFmpeg без editly'
+      });
     });
     
   } catch (error) {
     res.json({
       success: false,
-      message: 'Ошибка тестирования',
       error: error.message
     });
   }
 });
 
-// Скачивание видео
+// Скачивание и стриминг (те же что были)
 app.get('/api/download/:filename', (req, res) => {
   const filename = req.params.filename;
   const filepath = path.join(__dirname, 'outputs', filename);
@@ -336,7 +256,6 @@ app.get('/api/download/:filename', (req, res) => {
   res.download(filepath, filename);
 });
 
-// Стриминг видео
 app.get('/api/stream/:filename', (req, res) => {
   const filename = req.params.filename;
   const filepath = path.join(__dirname, 'outputs', filename);
@@ -376,9 +295,9 @@ app.get('/api/stream/:filename', (req, res) => {
 // Главная страница
 app.get('/', (req, res) => {
   res.json({
-    message: '🎬 Editly News Video API на Railway',
-    version: '2.1.0',
-    description: 'API для создания новостных видео через локальный editly',
+    message: '🎬 FFmpeg News Video API на Railway',
+    version: '3.0.0',
+    description: 'API для создания новостных видео через FFmpeg (без editly)',
     
     endpoints: {
       test: 'POST /api/test',
@@ -387,28 +306,22 @@ app.get('/', (req, res) => {
       stream: 'GET /api/stream/:filename'
     },
     
-    example: {
-      endpoint: '/api/create-news-video',
-      method: 'POST',
-      body: {
-        title: '🔥 Важная новость дня',
-        backgroundImage: 'https://images.unsplash.com/photo-xxxx',
-        duration: 149,
-        fast: false
-      }
-    },
+    advantages: [
+      '✅ Нет проблем с GL компиляцией',
+      '✅ Только FFmpeg - легкая установка', 
+      '✅ Быстрое создание видео',
+      '✅ Стабильная работа в Docker'
+    ],
     
     status: 'Готов к работе! 🚀'
   });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log('🎬 ===== EDITLY NEWS VIDEO API =====');
+  console.log('🎬 ===== FFMPEG NEWS VIDEO API =====');
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`🌐 URL: http://localhost:${PORT}`);
-  console.log('🧪 Тест: POST /api/test');
-  console.log('🎥 Создание видео: POST /api/create-news-video');
-  console.log('✅ Готов к созданию новостных видео!');
+  console.log('🎥 Метод: Прямой FFmpeg без editly');
+  console.log('✅ Никаких проблем с GL!');
   console.log('=====================================');
 });
 
