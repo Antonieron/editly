@@ -1,4 +1,4 @@
-// api-server.js (ИСПРАВЛЕННЫЙ - без зависимости от index.js)
+// api-server.js (ИСПРАВЛЕННЫЙ - использует локальный editly)
 import express from 'express';
 import { spawn } from 'child_process';
 import cors from 'cors';
@@ -55,20 +55,26 @@ function downloadImage(url, filepath) {
   });
 }
 
-// Функция создания видео через CLI editly
+// Функция создания видео через локальный editly
 function createVideoWithEditly(specPath, outputPath, options = {}) {
   return new Promise((resolve, reject) => {
-    const args = [specPath, '--out', outputPath];
+    const args = [
+      path.join(__dirname, 'node_modules/.bin/editly'),
+      specPath, 
+      '--out', 
+      outputPath
+    ];
     
     if (options.fast) {
       args.push('--fast');
     }
     
-    console.log('🎬 Запуск editly CLI:', 'npx editly', args.join(' '));
+    console.log('🎬 Запуск editly:', 'node', args.join(' '));
     
-    const editlyProcess = spawn('npx', ['editly', ...args], {
+    const editlyProcess = spawn('node', args, {
       cwd: __dirname,
-      stdio: 'pipe'
+      stdio: 'pipe',
+      env: { ...process.env, DISPLAY: ':99' }
     });
     
     let stdout = '';
@@ -236,7 +242,7 @@ app.post('/api/create-news-video', async (req, res) => {
     console.log('🎥 Запускаем editly для создания видео...');
     console.log(`⏱️ Длительность: ${duration} секунд`);
     
-    // Создаем видео через editly CLI
+    // Создаем видео через локальный editly
     await createVideoWithEditly(specPath, outputPath, { fast });
     
     console.log('✅ Видео создано успешно!');
@@ -291,28 +297,22 @@ app.post('/api/test', async (req, res) => {
   console.log('🧪 Тестовый запрос');
   
   try {
-    // Проверяем что editly CLI доступен
-    const testProcess = spawn('npx', ['editly', '--help'], {
-      stdio: 'pipe'
-    });
+    // Проверяем что editly доступен локально
+    const editlyPath = path.join(__dirname, 'node_modules/.bin/editly');
+    const editlyExists = fs.existsSync(editlyPath);
     
-    let output = '';
-    testProcess.stdout.on('data', (data) => {
-      output += data.toString();
-    });
-    
-    testProcess.on('close', (code) => {
-      res.json({
-        success: true,
-        message: 'API сервер работает!',
-        editlyAvailable: code === 0,
-        editlyOutput: output.substring(0, 200) + '...',
-        environment: {
-          nodeVersion: process.version,
-          platform: process.platform,
-          cwd: process.cwd()
-        }
-      });
+    res.json({
+      success: true,
+      message: 'API сервер работает!',
+      editlyPath: editlyPath,
+      editlyExists: editlyExists,
+      nodeModulesExists: fs.existsSync(path.join(__dirname, 'node_modules')),
+      environment: {
+        nodeVersion: process.version,
+        platform: process.platform,
+        cwd: process.cwd(),
+        __dirname: __dirname
+      }
     });
     
   } catch (error) {
@@ -377,8 +377,8 @@ app.get('/api/stream/:filename', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     message: '🎬 Editly News Video API на Railway',
-    version: '2.0.0',
-    description: 'API для создания новостных видео через editly CLI',
+    version: '2.1.0',
+    description: 'API для создания новостных видео через локальный editly',
     
     endpoints: {
       test: 'POST /api/test',
