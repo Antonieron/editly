@@ -26,6 +26,98 @@ dirs.forEach(dir => {
   }
 });
 
+// ИСПРАВЛЕННАЯ функция очистки текста для FFmpeg
+function sanitizeText(text) {
+  if (!text) return '';
+  
+  return text
+    .replace(/['"\\]/g, '') // Убираем кавычки и слеши
+    .replace(/:/g, ' - ') // Двоеточия заменяем на тире (КРИТИЧНО для FFmpeg!)
+    .replace(/=/g, ' равно ') // Знаки равенства
+    .replace(/\[/g, '(') // Квадратные скобки
+    .replace(/\]/g, ')')
+    .replace(/\n/g, ' ') // Переносы строк
+    .replace(/\r/g, ' ') 
+    .replace(/\t/g, ' ') // Табуляции
+    .replace(/[^\w\s\u0400-\u04FF.,!?()\-]/g, '') // Только безопасные символы
+    .replace(/\s+/g, ' ') // Множественные пробелы в один
+    .trim()
+    .slice(0, 100); // Ограничиваем длину
+}
+
+// ИСПРАВЛЕННАЯ функция умного разделения текста
+function smartTextSplit(text, numParts) {
+  if (!text || text.length < 20) {
+    const parts = [];
+    for (let i = 0; i < numParts; i++) {
+      parts.push(`Часть ${i + 1} новости`);
+    }
+    return parts;
+  }
+  
+  // Предварительно очищаем весь текст
+  const cleanText = text
+    .replace(/['"\\:=\[\]]/g, ' ') // Убираем проблемные символы
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  // Разделяем по предложениям
+  let sentences = cleanText.split(/[.!?]+/).filter(s => s.trim().length > 15);
+  
+  if (sentences.length >= numParts) {
+    const parts = [];
+    const sentencesPerPart = Math.ceil(sentences.length / numParts);
+    
+    for (let i = 0; i < numParts; i++) {
+      const start = i * sentencesPerPart;
+      const end = Math.min((i + 1) * sentencesPerPart, sentences.length);
+      let partText = sentences.slice(start, end).join('. ').trim();
+      
+      if (partText) {
+        if (!partText.endsWith('.')) partText += '.';
+        parts.push(partText.slice(0, 80)); // Короче для надежности
+      }
+    }
+    
+    // Дополняем если нужно
+    while (parts.length < numParts) {
+      parts.push(`Продолжение новости ${parts.length + 1}`);
+    }
+    
+    return parts;
+  }
+  
+  // Мало предложений - делим по длине
+  const parts = [];
+  const charsPerPart = Math.ceil(cleanText.length / numParts);
+  
+  for (let i = 0; i < numParts; i++) {
+    let start = i * charsPerPart;
+    let end = Math.min((i + 1) * charsPerPart, cleanText.length);
+    
+    // Корректируем по словам
+    if (i > 0 && start < cleanText.length) {
+      while (start > 0 && cleanText[start] !== ' ') start--;
+      if (cleanText[start] === ' ') start++;
+    }
+    
+    if (end < cleanText.length) {
+      while (end < cleanText.length && cleanText[end] !== ' ') end++;
+    }
+    
+    const partText = cleanText.substring(start, end).trim().slice(0, 80);
+    if (partText) {
+      parts.push(partText);
+    }
+  }
+  
+  while (parts.length < numParts) {
+    parts.push(`Часть ${parts.length + 1} новости`);
+  }
+  
+  return parts.slice(0, numParts);
+}
+
 // УЛУЧШЕННАЯ функция скачивания с детальным логированием
 function downloadImage(url, filepath, index = 0) {
   return new Promise((resolve, reject) => {
@@ -138,81 +230,20 @@ function downloadImage(url, filepath, index = 0) {
   });
 }
 
-// УЛУЧШЕННАЯ функция разделения текста
-function smartTextSplit(text, numParts) {
-  if (!text || text.length < 20) {
-    // Если текста мало, дублируем
-    const parts = [];
-    for (let i = 0; i < numParts; i++) {
-      parts.push(text || `Часть ${i + 1} новости`);
-    }
-    return parts;
-  }
-  
-  // Сначала пробуем разделить по предложениям
-  let sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
-  
-  if (sentences.length >= numParts) {
-    // Достаточно предложений - группируем
-    const parts = [];
-    const sentencesPerPart = Math.ceil(sentences.length / numParts);
-    
-    for (let i = 0; i < numParts; i++) {
-      const start = i * sentencesPerPart;
-      const end = Math.min((i + 1) * sentencesPerPart, sentences.length);
-      const partText = sentences.slice(start, end).join('. ').trim();
-      parts.push(partText + (partText.endsWith('.') ? '' : '.'));
-    }
-    
-    return parts;
-  }
-  
-  // Мало предложений - делим по длине
-  const parts = [];
-  const charsPerPart = Math.ceil(text.length / numParts);
-  
-  for (let i = 0; i < numParts; i++) {
-    let start = i * charsPerPart;
-    let end = Math.min((i + 1) * charsPerPart, text.length);
-    
-    // Корректируем границы по словам
-    if (i > 0 && start < text.length) {
-      while (start > 0 && text[start] !== ' ') start--;
-      if (text[start] === ' ') start++;
-    }
-    
-    if (end < text.length) {
-      while (end < text.length && text[end] !== ' ') end++;
-    }
-    
-    const partText = text.substring(start, end).trim();
-    if (partText) {
-      parts.push(partText);
-    }
-  }
-  
-  // Дополняем до нужного количества частей
-  while (parts.length < numParts) {
-    parts.push(parts[parts.length - 1] || 'Продолжение новости...');
-  }
-  
-  return parts.slice(0, numParts);
-}
-
-// УЛУЧШЕННАЯ функция создания динамического видео
+// ИСПРАВЛЕННАЯ функция создания динамического видео
 function createPerfectDynamicVideo(imagePaths, outputPath, options) {
   return new Promise((resolve, reject) => {
     const {
-      title = '🔥 Важная новость дня',
+      title = 'Важная новость дня',
       duration = 60,
-      channelName = '📺 AI Новости',
-      subscribeText = '👆 ПОДПИШИСЬ НА КАНАЛ!',
+      channelName = 'AI Новости',
+      subscribeText = 'ПОДПИШИСЬ НА КАНАЛ',
       newsText = '',
       fast = false,
       enableKenBurns = true
     } = options;
 
-    console.log(`🎬 Создание ИДЕАЛЬНОГО динамического видео из ${imagePaths.length} изображений`);
+    console.log(`🎬 Создание ИСПРАВЛЕННОГО динамического видео из ${imagePaths.length} изображений`);
 
     // Проверяем все изображения
     for (let i = 0; i < imagePaths.length; i++) {
@@ -222,19 +253,25 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
       }
       
       const stats = fs.statSync(imagePaths[i]);
-      console.log(`✅ Изображение ${i + 1}: ${(stats.size / 1024).toFixed(1)} KB - ${imagePaths[i]}`);
+      console.log(`✅ Изображение ${i + 1}: ${(stats.size / 1024).toFixed(1)} KB`);
     }
 
-    // Подготавливаем безопасный текст
+    // БЕЗОПАСНАЯ очистка всех текстов
     const safeTitle = sanitizeText(title);
     const safeChannelName = sanitizeText(channelName);
     const safeSubscribeText = sanitizeText(subscribeText);
 
-    // УМНОЕ разделение текста
+    console.log(`📝 Безопасные тексты:`);
+    console.log(`   Заголовок: "${safeTitle}"`);
+    console.log(`   Канал: "${safeChannelName}"`);
+    console.log(`   Подписка: "${safeSubscribeText}"`);
+
+    // БЕЗОПАСНОЕ разделение текста
     const textParts = smartTextSplit(newsText, imagePaths.length);
     console.log(`📝 Разделили текст на ${textParts.length} частей:`);
     textParts.forEach((part, i) => {
-      console.log(`   ${i + 1}. "${part.substring(0, 50)}..."`);
+      const safePart = sanitizeText(part);
+      console.log(`   ${i + 1}. "${safePart}"`);
     });
     
     const sceneDuration = duration / imagePaths.length;
@@ -243,7 +280,7 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
     // Строим входы для FFmpeg
     const inputs = imagePaths.map(imagePath => ['-loop', '1', '-i', imagePath]).flat();
     
-    // Строим сложный фильтр с МОЩНЫМИ эффектами
+    // Строим БЕЗОПАСНЫЙ сложный фильтр
     const filterParts = [];
     
     // Обрабатываем каждое изображение
@@ -252,42 +289,35 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
       const endTime = Math.min((index + 1) * sceneDuration, duration);
       const sceneLength = endTime - startTime;
       
-      console.log(`🎬 Сцена ${index + 1}: ${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s (${sceneLength.toFixed(1)}s)`);
+      console.log(`🎬 Сцена ${index + 1}: ${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s`);
       
-      // МОЩНЫЙ Ken Burns эффект с разными типами движения
+      // УПРОЩЕННЫЙ Ken Burns эффект (убираем сложную математику)
       let videoFilter = `[${index}:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080`;
       
       if (enableKenBurns) {
-        const effects = [
-          // Приближение с панорамой вправо
-          `zoompan=z='min(1.5,1.0+0.002*t)':d=25*${sceneLength}:x='iw/2-(iw/zoom/2)+t*30':y='ih/2-(ih/zoom/2)':s=1920x1080`,
-          
-          // Отдаление с панорамой влево  
-          `zoompan=z='max(1.0,1.5-0.002*t)':d=25*${sceneLength}:x='iw/2-(iw/zoom/2)-t*20':y='ih/2-(ih/zoom/2)':s=1920x1080`,
-          
-          // Диагональное движение с зумом
-          `zoompan=z='min(1.4,1.0+0.0015*t)':d=25*${sceneLength}:x='iw/2-(iw/zoom/2)+t*25':y='ih/2-(ih/zoom/2)+t*15':s=1920x1080`,
-          
-          // Центральное приближение
-          `zoompan=z='min(1.6,1.0+0.0025*t)':d=25*${sceneLength}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080`
-        ];
-        
-        videoFilter += `,` + effects[index % effects.length];
+        // Простые, надежные эффекты
+        if (index % 2 === 0) {
+          // Приближение
+          videoFilter += `,zoompan=z='min(1.3,1.0+0.001*t)':d=25*${sceneLength}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080`;
+        } else {
+          // Отдаление
+          videoFilter += `,zoompan=z='max(1.0,1.3-0.001*t)':d=25*${sceneLength}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080`;
+        }
       }
       
       videoFilter += `,setpts=PTS-STARTPTS+${startTime}/TB[v${index}]`;
       filterParts.push(videoFilter);
       
-      // Добавляем ИНДИВИДУАЛЬНЫЕ субтитры для каждой сцены
-      const subtitleText = sanitizeText(textParts[index] || `Часть ${index + 1} новости`);
-      console.log(`📝 Субтитры для сцены ${index + 1}: "${subtitleText.substring(0, 50)}..."`);
+      // БЕЗОПАСНЫЕ субтитры для каждой сцены
+      const subtitleText = sanitizeText(textParts[index] || `Часть ${index + 1}`);
+      console.log(`📝 Безопасные субтитры ${index + 1}: "${subtitleText}"`);
       
-      // Субтитры с анимацией появления
       const subtitleStart = startTime + 1;
       const subtitleEnd = endTime - 0.5;
       
-      if (subtitleText && subtitleText.length > 5) {
-        filterParts.push(`[v${index}]drawtext=text='${subtitleText}':fontcolor=white:fontsize=36:x=(w-text_w)/2:y=h-140:box=1:boxcolor=black@0.9:boxborderw=12:enable='between(t,${subtitleStart},${subtitleEnd})'[v${index}s]`);
+      if (subtitleText && subtitleText.length > 3) {
+        // ПРОСТОЙ drawtext без сложных параметров
+        filterParts.push(`[v${index}]drawtext=text='${subtitleText}':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=h-120:box=1:boxcolor=black@0.8:boxborderw=8:enable='between(t,${subtitleStart.toFixed(1)},${subtitleEnd.toFixed(1)})'[v${index}s]`);
       } else {
         filterParts.push(`[v${index}]copy[v${index}s]`);
       }
@@ -298,35 +328,36 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
     const concatFilter = `${concatInputs}concat=n=${imagePaths.length}:v=1:a=0[vconcat]`;
     filterParts.push(concatFilter);
 
-    // Добавляем ЯРКИЕ общие элементы
-    // Анимированная красная полоса
-    filterParts.push(`[vconcat]drawbox=x=0:y=0:w=1920:h=100:color=red@0.95:t=fill[vbar]`);
-    filterParts.push(`[vbar]drawtext=text='🔥 ВАЖНЫЕ НОВОСТИ • BREAKING NEWS • СРОЧНО 🔥':fontsize=30:fontcolor=white:x=(w-text_w)/2:y=30[vtop]`);
+    // ПРОСТЫЕ общие элементы без сложных текстов
+    filterParts.push(`[vconcat]drawbox=x=0:y=0:w=1920:h=80:color=red@0.9:t=fill[vbar]`);
+    filterParts.push(`[vbar]drawtext=text='ВАЖНЫЕ НОВОСТИ':fontsize=28:fontcolor=white:x=(w-text_w)/2:y=25[vtop]`);
     
-    // Заголовок с яркой анимацией
-    filterParts.push(`[vtop]drawtext=text='${safeTitle}':fontsize=56:fontcolor=yellow:x=(w-text_w)/2:y=350:box=1:boxcolor=black@0.9:boxborderw=15:enable='between(t,1,10)'[vtitle]`);
+    if (safeTitle.length > 0) {
+      filterParts.push(`[vtop]drawtext=text='${safeTitle}':fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=300:box=1:boxcolor=black@0.8:boxborderw=10:enable='between(t,1,8)'[vtitle]`);
+    } else {
+      filterParts.push(`[vtop]copy[vtitle]`);
+    }
     
-    // Информация о канале - всегда видна
-    filterParts.push(`[vtitle]drawtext=text='${safeChannelName}':fontsize=26:fontcolor=white:x=50:y=h-60:box=1:boxcolor=red@0.9:boxborderw=8[vchannel]`);
+    if (safeChannelName.length > 0) {
+      filterParts.push(`[vtitle]drawtext=text='${safeChannelName}':fontsize=24:fontcolor=white:x=50:y=h-50:box=1:boxcolor=red@0.8:boxborderw=6[vchannel]`);
+    } else {
+      filterParts.push(`[vtitle]copy[vchannel]`);
+    }
     
-    // Прогресс-бар сцен
-    imagePaths.forEach((_, index) => {
-      const startTime = index * sceneDuration;
-      const endTime = Math.min((index + 1) * sceneDuration, duration);
-      const progress = `${index + 1}/${imagePaths.length}`;
-      filterParts.push(`[vchannel]drawtext=text='${progress}':fontsize=24:fontcolor=yellow:x=w-120:y=130:box=1:boxcolor=black@0.8:boxborderw=6:enable='between(t,${startTime + 1},${endTime - 1})'[vchannel]`);
-    });
-    
-    // Большой призыв к подписке в конце
-    const subscribeStart = Math.max(0, duration - 8);
-    filterParts.push(`[vchannel]drawtext=text='${safeSubscribeText}':fontsize=40:fontcolor=black:x=(w-text_w)/2:y=h-80:box=1:boxcolor=yellow@0.95:boxborderw=15:enable='between(t,${subscribeStart},${duration})'[vfinal]`);
+    if (safeSubscribeText.length > 0) {
+      const subscribeStart = Math.max(0, duration - 6);
+      filterParts.push(`[vchannel]drawtext=text='${safeSubscribeText}':fontsize=32:fontcolor=black:x=(w-text_w)/2:y=h-60:box=1:boxcolor=yellow@0.9:boxborderw=8:enable='between(t,${subscribeStart.toFixed(1)},${duration})'[vfinal]`);
+    } else {
+      filterParts.push(`[vchannel]copy[vfinal]`);
+    }
 
     // Объединяем все фильтры
     const filterComplex = filterParts.join('; ');
     
-    console.log(`🎬 Создано ${filterParts.length} фильтров`);
+    console.log(`🎬 Создано ${filterParts.length} безопасных фильтров`);
+    console.log(`🔧 Длина filter_complex: ${filterComplex.length} символов`);
 
-    // FFmpeg аргументы с оптимизацией
+    // FFmpeg аргументы
     const ffmpegArgs = [
       ...inputs,
       '-filter_complex', filterComplex,
@@ -336,14 +367,12 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
       '-pix_fmt', 'yuv420p',
       '-r', fast ? '25' : '30',
       '-preset', fast ? 'ultrafast' : 'fast',
-      '-crf', fast ? '25' : '18', // Лучшее качество
-      '-maxrate', '8M',
-      '-bufsize', '16M',
+      '-crf', fast ? '23' : '20',
       '-y',
       outputPath
     ];
 
-    console.log('🎬 Запуск FFmpeg для создания ИДЕАЛЬНОГО видео');
+    console.log('🎬 Запуск FFmpeg для ИСПРАВЛЕННОГО видео');
 
     const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
       stdio: 'pipe'
@@ -360,30 +389,27 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
       stderr += data.toString();
       const line = data.toString().trim();
       if (line.includes('frame=') || line.includes('time=')) {
-        // Показываем только важный прогресс
         const timeMatch = line.match(/time=(\d{2}):(\d{2}):(\d{2})/);
         if (timeMatch) {
           const currentSeconds = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]);
           const progress = ((currentSeconds / duration) * 100).toFixed(1);
-          console.log(`⚡ Прогресс: ${progress}% (${currentSeconds}s/${duration}s)`);
+          console.log(`⚡ Прогресс: ${progress}%`);
         }
       }
     });
 
     ffmpegProcess.on('close', (code) => {
       if (code === 0) {
-        console.log('✅ ИДЕАЛЬНОЕ динамическое видео создано успешно!');
+        console.log('✅ ИСПРАВЛЕННОЕ динамическое видео создано успешно!');
         resolve({ 
           stdout, 
           stderr,
-          method: 'Perfect Dynamic Video',
+          method: 'Fixed Dynamic Video',
           features: [
-            'Множественные изображения ✓',
-            'Мощный Ken Burns эффект ✓',
-            'Индивидуальные субтитры ✓',
-            'Умное разделение текста ✓',
-            'Прогресс-бар сцен ✓',
-            'Высокое качество видео ✓'
+            'Исправленная очистка текста ✓',
+            'Безопасные FFmpeg фильтры ✓',
+            'Упрощенный Ken Burns ✓',
+            'Стабильные субтитры ✓'
           ]
         });
       } else {
@@ -400,38 +426,29 @@ function createPerfectDynamicVideo(imagePaths, outputPath, options) {
   });
 }
 
-// Функция очистки текста
-function sanitizeText(text) {
-  if (!text) return '';
-  return text
-    .replace(/['"\\]/g, '')
-    .replace(/[^\w\s\u0400-\u04FF.,!?():-]/g, '')
-    .slice(0, 150); // Увеличили лимит
-}
-
 // ГЛАВНЫЙ API ENDPOINT
 app.post('/api/create-news-video', async (req, res) => {
-  console.log('📨 Получен запрос на создание ИДЕАЛЬНОГО новостного видео');
+  console.log('📨 Получен запрос на создание ИСПРАВЛЕННОГО новостного видео');
   console.log('📊 Параметры запроса:', JSON.stringify(req.body, null, 2));
   
   try {
     const {
-      title = '🔥 Важная новость дня',
+      title = 'Важная новость дня',
       backgroundImage,
       duration = 45,
-      channelName = '📺 AI Новости',
-      subscribeText = '👆 ПОДПИШИСЬ НА КАНАЛ!',
+      channelName = 'AI Новости',
+      subscribeText = 'ПОДПИШИСЬ НА КАНАЛ!',
       fast = false,
-      enhanced = true, // По умолчанию включен
+      enhanced = true,
       newsText = '',
       images = [],
       enableKenBurns = true
     } = req.body;
 
     const timestamp = Date.now();
-    const videoFilename = `perfect_news_${timestamp}.mp4`;
+    const videoFilename = `fixed_news_${timestamp}.mp4`;
     const outputPath = path.join(__dirname, 'outputs', videoFilename);
-    const tempDir = path.join(__dirname, 'temp', `perfect_${timestamp}`);
+    const tempDir = path.join(__dirname, 'temp', `fixed_${timestamp}`);
 
     // Создаем временную папку
     if (!fs.existsSync(tempDir)) {
@@ -514,7 +531,7 @@ app.post('/api/create-news-video', async (req, res) => {
       throw new Error('Не удалось загрузить ни одного изображения');
     }
 
-    // Создаем видео
+    // Создаем видео с исправленной функцией
     const result = await createPerfectDynamicVideo(imagePaths, outputPath, {
       title,
       duration,
@@ -525,7 +542,7 @@ app.post('/api/create-news-video', async (req, res) => {
       enableKenBurns
     });
     
-    console.log('✅ ИДЕАЛЬНОЕ видео создано успешно!');
+    console.log('✅ ИСПРАВЛЕННОЕ видео создано успешно!');
     
     // Очищаем временную папку
     if (fs.existsSync(tempDir)) {
@@ -544,7 +561,7 @@ app.post('/api/create-news-video', async (req, res) => {
     
     res.json({
       success: true,
-      message: 'ИДЕАЛЬНОЕ новостное видео создано! 🎬✨',
+      message: 'ИСПРАВЛЕННОЕ новостное видео создано! 🎬✨',
       data: {
         filename: videoFilename,
         downloadUrl: `/api/download/${videoFilename}`,
@@ -563,9 +580,9 @@ app.post('/api/create-news-video', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Ошибка при создании ИДЕАЛЬНОГО видео:', error);
+    console.error('❌ Ошибка при создании ИСПРАВЛЕННОГО видео:', error);
     res.status(500).json({
-      error: 'Ошибка при создании идеального новостного видео',
+      error: 'Ошибка при создании исправленного новостного видео',
       message: error.message
     });
   }
@@ -621,7 +638,7 @@ app.get('/api/stream/:filename', (req, res) => {
 
 // Тест
 app.post('/api/test', async (req, res) => {
-  console.log('🧪 Тест ИДЕАЛЬНОЙ системы');
+  console.log('🧪 Тест ИСПРАВЛЕННОЙ системы');
   
   try {
     const testProcess = spawn('ffmpeg', ['-version'], {
@@ -636,22 +653,28 @@ app.post('/api/test', async (req, res) => {
     testProcess.on('close', (code) => {
       res.json({
         success: true,
-        message: 'ИДЕАЛЬНАЯ система новостных видео готова!',
+        message: 'ИСПРАВЛЕННАЯ система новостных видео готова!',
         ffmpegAvailable: code === 0,
         ffmpegVersion: output.split('\n')[0],
         features: [
+          '✅ ИСПРАВЛЕННАЯ очистка текста для FFmpeg',
+          '✅ Безопасное разделение субтитров',
+          '✅ Упрощенные Ken Burns эффекты',
+          '✅ Стабильные фильтры без сложной математики',
           '✅ Детальное логирование загрузки',
-          '✅ Умное разделение текста',
-          '✅ Мощные Ken Burns эффекты',
-          '✅ Индивидуальные субтитры',
-          '✅ Прогресс-бар сцен',
-          '✅ Высокое качество видео',
           '✅ Надежная обработка ошибок'
+        ],
+        improvements: [
+          '🔧 Исправлена очистка двоеточий и спецсимволов',
+          '🔧 Упрощены Ken Burns эффекты',
+          '🔧 Укорочены тексты субтитров',
+          '🔧 Убраны сложные математические выражения'
         ],
         limits: {
           maxImages: 4,
           maxDuration: 60,
-          imageTimeout: 45
+          imageTimeout: 45,
+          textLength: 100
         }
       });
     });
@@ -667,16 +690,16 @@ app.post('/api/test', async (req, res) => {
 // Главная страница
 app.get('/', (req, res) => {
   res.json({
-    message: '🎬 PERFECT Image-Based News Video API',
-    version: '6.0.0',
-    description: 'Идеальная система создания новостных видео из изображений',
+    message: '🎬 FIXED Image-Based News Video API',
+    version: '6.1.0 - ИСПРАВЛЕННАЯ',
+    description: 'Исправленная система создания новостных видео из изображений',
     
     features: {
       '📥 Загрузка': 'Детальное логирование + проверка файлов',
-      '📝 Текст': 'Умное разделение по сценам',
-      '🎬 Эффекты': 'Мощный Ken Burns с 4 типами движения',
-      '📊 Прогресс': 'Счетчик сцен и прогресс-бар',
-      '🎨 Качество': 'CRF 18 для максимального качества'
+      '📝 Текст': 'ИСПРАВЛЕННАЯ очистка и разделение',
+      '🎬 Эффекты': 'Упрощенные Ken Burns (стабильные)',
+      '📊 Фильтры': 'Безопасные FFmpeg команды',
+      '🎨 Качество': 'Стабильное создание видео'
     },
     
     endpoints: {
@@ -686,28 +709,28 @@ app.get('/', (req, res) => {
       stream: 'GET /api/stream/:filename'
     },
     
-    improvements: [
-      '🔧 Исправлено скачивание изображений',
-      '📝 Улучшено разделение субтитров',
-      '🎬 Усилен Ken Burns эффект',
-      '📊 Добавлен прогресс-бар',
-      '🎯 Повышено качество видео'
+    fixes: [
+      '🔧 Исправлена обработка двоеточий в тексте',
+      '🔧 Упрощены Ken Burns эффекты',
+      '🔧 Сокращена длина субтитров',
+      '🔧 Убраны проблемные символы',
+      '🔧 Стабилизированы FFmpeg фильтры'
     ],
     
-    status: 'Готова к созданию ИДЕАЛЬНЫХ видео! 🚀✨'
+    status: 'Готова к созданию СТАБИЛЬНЫХ видео! 🚀✅'
   });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log('🎬 ===== PERFECT IMAGE-BASED NEWS VIDEO API =====');
+  console.log('🎬 ===== FIXED IMAGE-BASED NEWS VIDEO API =====');
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log('✨ Режим: ИДЕАЛЬНЫЕ видео из изображений');
-  console.log('🎯 Улучшения:');
-  console.log('   📥 Детальное логирование загрузки');
-  console.log('   📝 Умное разделение текста на сцены');
-  console.log('   🎬 Мощные Ken Burns эффекты (4 типа)');
-  console.log('   📊 Прогресс-бар и счетчики');
-  console.log('   🎨 Максимальное качество (CRF 18)');
+  console.log('✨ Режим: ИСПРАВЛЕННЫЕ стабильные видео');
+  console.log('🔧 Исправления:');
+  console.log('   📝 Безопасная очистка текста');
+  console.log('   🎬 Упрощенные Ken Burns эффекты');
+  console.log('   📊 Стабильные FFmpeg фильтры');
+  console.log('   🎯 Укороченные субтитры');
+  console.log('   ⚡ Надежная обработка символов');
   console.log('================================================');
 });
 
